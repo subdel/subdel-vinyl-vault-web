@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download } from "lucide-react";
+import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Wand2 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const FINISH_OPTIONS = [
@@ -313,6 +313,48 @@ function geniusLink(artist, track) {
   return `https://genius.com/search?q=${encodeURIComponent(`${artist} ${track}`)}`;
 }
 
+// ---------- AI auto-fill via Supabase Edge Function proxy ----------
+async function callClaudeProxy(prompt, maxTokens = 800) {
+  const { data, error } = await supabase.functions.invoke("claude-proxy", {
+    body: { prompt, max_tokens: maxTokens },
+  });
+  if (error) throw error;
+  const text = (data?.content || [])
+    .filter((b) => b.type === "text")
+    .map((b) => b.text)
+    .join(" ")
+    .trim();
+  return text;
+}
+
+async function fetchAlbumStory(artist, title, year) {
+  const prompt = `Give a short, factual background on the album "${title}" by ${artist}${year ? ` (${year})` : ""}. Cover: when/how it was recorded, its context or reception, and one interesting fact. Plain prose, 3-5 sentences, no headers, no markdown, no lyrics or quoted lyrics.`;
+  const text = await callClaudeProxy(prompt, 1000);
+  return text || "No background found for this pressing.";
+}
+
+async function fetchLabelGenre(artist, title, year) {
+  const prompt = `For the album "${title}" by ${artist}${year ? ` (${year})` : ""}, find the original record label and its music genre(s). Respond with ONLY a JSON object like {"label": "Columbia Records", "genre": "Pop, Electropop"} and nothing else — no markdown, no code fences, no commentary. Use short, common genre names (e.g. Pop, Rock, Indie, Hip-Hop, Electronic). If either is genuinely unknown, use an empty string for that field.`;
+  const text = await callClaudeProxy(prompt, 400);
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  const parsed = JSON.parse(match ? match[0] : cleaned);
+  return {
+    label: parsed && parsed.label ? String(parsed.label).trim() : "",
+    genre: parsed && parsed.genre ? String(parsed.genre).trim() : "",
+  };
+}
+
+async function fetchTracklist(artist, title, year) {
+  const prompt = `Find the official tracklist for the album "${title}" by ${artist}${year ? ` (${year})` : ""}. Respond with ONLY a JSON array of the track titles as strings, in the correct running order, and nothing else — no markdown, no code fences, no commentary.`;
+  const text = await callClaudeProxy(prompt, 1000);
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const match = cleaned.match(/\[[\s\S]*\]/);
+  const parsed = JSON.parse(match ? match[0] : cleaned);
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("No tracklist found");
+  return parsed.map((t) => String(t).trim()).filter(Boolean);
+}
+
 
 // ================= APP =================
 export default function VinylCrate() {
@@ -333,6 +375,20 @@ export default function VinylCrate() {
   const [sizeFilter, setSizeFilter] = useState(null);
   const [saveError, setSaveError] = useState(false);
   const [activeTab, setActiveTab] = useState("collection"); // collection | wishlist
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      setSession(sess);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -555,6 +611,16 @@ export default function VinylCrate() {
     }
   }
 
+  async function saveInfo(id, info) {
+    setRecords(records.map((r) => (r.id === id ? { ...r, info } : r)));
+    try {
+      await updateRecordDb(id, { ...records.find((r) => r.id === id), info });
+    } catch (err) {
+      console.error("Couldn't save info", err);
+      setSaveError(true);
+    }
+  }
+
   async function moveToCollection(id) {
     setRecords(records.map((r) => (r.id === id ? { ...r, status: "owned" } : r)));
     try {
@@ -577,23 +643,38 @@ export default function VinylCrate() {
             <p>Collection archive</p>
           </div>
         </div>
-        {view === "grid" && activeTab !== "history" && (
-          <div className="vc-header-actions">
-            {scopedRecords && scopedRecords.length > 0 && (
-              <span className="vc-tally">{scopedRecords.length} {activeTab === "wishlist" ? "wanted" : "pressing"}{scopedRecords.length === 1 ? "" : "s"}</span>
-            )}
-            <button
-              className="vc-btn vc-btn-primary"
-              onClick={openAdd}
-              disabled={records === null}
-              title={records === null ? "Loading your vault…" : undefined}
-            >
-              <Plus size={16} strokeWidth={2} />
-              {activeTab === "wishlist" ? "Add to Wishlist" : "Add Record"}
-            </button>
-          </div>
-        )}
+        <div className="vc-header-actions">
+          {view === "grid" && activeTab !== "history" && scopedRecords && scopedRecords.length > 0 && (
+            <span className="vc-tally">{scopedRecords.length} {activeTab === "wishlist" ? "wanted" : "pressing"}{scopedRecords.length === 1 ? "" : "s"}</span>
+          )}
+          {view === "grid" && activeTab !== "history" && (
+            session ? (
+              <button
+                className="vc-btn vc-btn-primary"
+                onClick={openAdd}
+                disabled={records === null}
+                title={records === null ? "Loading your vault…" : undefined}
+              >
+                <Plus size={16} strokeWidth={2} />
+                {activeTab === "wishlist" ? "Add to Wishlist" : "Add Record"}
+              </button>
+            ) : null
+          )}
+          {!authLoading && (
+            session ? (
+              <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => supabase.auth.signOut()}>
+                Sign out
+              </button>
+            ) : (
+              <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => setLoginOpen(true)}>
+                Sign in
+              </button>
+            )
+          )}
+        </div>
       </header>
+
+      {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
 
       {view === "grid" && (
         <nav className="vc-tabs">
@@ -635,6 +716,7 @@ export default function VinylCrate() {
           records={filtered}
           total={scopedRecords ? scopedRecords.length : 0}
           activeTab={activeTab}
+          canEdit={!!session}
           entryNumbers={entryNumbers}
           query={query}
           setQuery={setQuery}
@@ -670,6 +752,7 @@ export default function VinylCrate() {
         <DetailView
           record={selected}
           entryNo={entryNumbers[selected.id]}
+          canEdit={!!session}
           onBack={() => {
             setView("grid");
             setSelectedId(null);
@@ -677,6 +760,7 @@ export default function VinylCrate() {
           onEdit={() => openEdit(selected)}
           onDelete={() => deleteRecord(selected.id)}
           onLyrics={() => setView("lyrics")}
+          onSaveInfo={(info) => saveInfo(selected.id, info)}
           onMoveToCollection={() => moveToCollection(selected.id)}
         />
       )}
@@ -730,6 +814,58 @@ function HistoryView({ loading, records, onOpen }) {
         </>
       )}
     </main>
+  );
+}
+
+function LoginModal({ onClose }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    setLoading(false);
+    if (err) {
+      setError("Couldn't sign in — check your email and password.");
+    } else {
+      onClose();
+    }
+  }
+
+  return (
+    <div className="vc-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="vc-modal" style={{ maxWidth: 380 }}>
+        <div className="vc-modal-head">
+          <h3>Sign in</h3>
+          <button type="button" className="vc-icon-btn" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <label className="vc-field">
+            <span>Email</span>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+          </label>
+          <label className="vc-field">
+            <span>Password</span>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </label>
+          {error && <p className="vc-error">{error}</p>}
+          <div className="vc-modal-actions">
+            <button type="button" className="vc-btn vc-btn-ghost" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="vc-btn vc-btn-primary" disabled={loading}>
+              {loading ? "Signing in…" : "Sign in"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 
@@ -806,6 +942,7 @@ function GridView({
   records,
   total,
   activeTab,
+  canEdit,
   entryNumbers,
   query,
   setQuery,
@@ -1003,10 +1140,12 @@ function GridView({
           <Disc3 size={40} strokeWidth={1} />
           <h3>{activeTab === "wishlist" ? "Your wishlist is empty" : "Your vault is empty"}</h3>
           <p>{activeTab === "wishlist" ? "Add a record you're hunting for to start tracking it." : "Add your first record to start the collection."}</p>
-          <button className="vc-btn vc-btn-primary" onClick={onAdd}>
-            <Plus size={16} />
-            {activeTab === "wishlist" ? "Add to Wishlist" : "Add Record"}
-          </button>
+          {canEdit && (
+            <button className="vc-btn vc-btn-primary" onClick={onAdd}>
+              <Plus size={16} />
+              {activeTab === "wishlist" ? "Add to Wishlist" : "Add Record"}
+            </button>
+          )}
         </div>
       )}
 
@@ -1248,15 +1387,31 @@ function PlaceholderCover({ artist, title, hex }) {
 }
 
 // ================= DETAIL VIEW =================
-function DetailView({ record, entryNo, onBack, onEdit, onDelete, onLyrics, onMoveToCollection }) {
+function DetailView({ record, entryNo, canEdit, onBack, onEdit, onDelete, onLyrics, onSaveInfo, onMoveToCollection }) {
   const [revealed, setRevealed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [infoLoading, setInfoLoading] = useState(false);
+  const [infoError, setInfoError] = useState(false);
   const links = streamLinks(record.artist, record.title);
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setRevealed(true));
     return () => cancelAnimationFrame(t);
   }, [record.id]);
+
+  async function handleMoreInfo() {
+    setInfoLoading(true);
+    setInfoError(false);
+    try {
+      const text = await fetchAlbumStory(record.artist, record.title, record.year);
+      onSaveInfo(text);
+    } catch (e) {
+      console.error(e);
+      setInfoError(true);
+    } finally {
+      setInfoLoading(false);
+    }
+  }
 
   return (
     <main className="vc-detail">
@@ -1319,7 +1474,7 @@ function DetailView({ record, entryNo, onBack, onEdit, onDelete, onLyrics, onMov
             </div>
           )}
 
-          {record.status === "wishlist" && (
+          {canEdit && record.status === "wishlist" && (
             <button className="vc-btn vc-btn-primary vc-move-btn" onClick={onMoveToCollection}>
               <CircleCheck size={15} /> Got it — move to Collection
             </button>
@@ -1343,31 +1498,49 @@ function DetailView({ record, entryNo, onBack, onEdit, onDelete, onLyrics, onMov
             </button>
           )}
 
-          {record.info && (
+          {(record.info || canEdit) && (
             <div className="vc-story">
               <div className="vc-story-head">
                 <span>More info</span>
               </div>
-              <p className="vc-story-text">{record.info}</p>
+              {canEdit && !record.info && !infoLoading && (
+                <button className="vc-btn vc-btn-ghost" onClick={handleMoreInfo}>
+                  Look up this album's story
+                </button>
+              )}
+              {infoLoading && <p className="vc-muted">Searching the web for background…</p>}
+              {infoError && <p className="vc-error">Couldn't fetch info — try again in a moment.</p>}
+              {record.info && !infoLoading && (
+                <>
+                  <p className="vc-story-text">{record.info}</p>
+                  {canEdit && (
+                    <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={handleMoreInfo}>
+                      Refresh
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           )}
 
-          <div className="vc-manage-row">
-            <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={onEdit}>
-              <Pencil size={13} /> Edit details
-            </button>
-            {!confirmDelete ? (
-              <button className="vc-btn vc-btn-ghost vc-btn-sm vc-danger" onClick={() => setConfirmDelete(true)}>
-                <Trash2 size={13} /> Remove from vault
+          {canEdit && (
+            <div className="vc-manage-row">
+              <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={onEdit}>
+                <Pencil size={13} /> Edit details
               </button>
-            ) : (
-              <span className="vc-confirm">
-                Remove for good?
-                <button className="vc-btn vc-btn-sm vc-danger" onClick={onDelete}>Yes, remove</button>
-                <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
-              </span>
-            )}
-          </div>
+              {!confirmDelete ? (
+                <button className="vc-btn vc-btn-ghost vc-btn-sm vc-danger" onClick={() => setConfirmDelete(true)}>
+                  <Trash2 size={13} /> Remove from vault
+                </button>
+              ) : (
+                <span className="vc-confirm">
+                  Remove for good?
+                  <button className="vc-btn vc-btn-sm vc-danger" onClick={onDelete}>Yes, remove</button>
+                  <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => setConfirmDelete(false)}>Cancel</button>
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </main>
@@ -1413,12 +1586,51 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
   const [discLoading, setDiscLoading] = useState(false);
   const [discError, setDiscError] = useState("");
   const discPreview = form.discImageUrl || null;
+  const [metaLoading, setMetaLoading] = useState(false);
+  const [metaError, setMetaError] = useState("");
+  const [trackLoading, setTrackLoading] = useState(false);
+  const [trackError, setTrackError] = useState("");
   useEffect(() => {
     firstRef.current?.focus();
   }, []);
 
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  async function handleFetchLabelGenre() {
+    if (!form.artist.trim() || !form.title.trim()) {
+      setMetaError("Add the artist and album title first.");
+      return;
+    }
+    setMetaError("");
+    setMetaLoading(true);
+    try {
+      const { label, genre } = await fetchLabelGenre(form.artist, form.title, form.year);
+      if (!label && !genre) throw new Error("Nothing found");
+      setForm((f) => ({ ...f, label: label || f.label, genre: genre || f.genre }));
+    } catch (err) {
+      setMetaError("Couldn't find that online — you can still type it in.");
+    } finally {
+      setMetaLoading(false);
+    }
+  }
+
+  async function handleFetchTracks() {
+    if (!form.artist.trim() || !form.title.trim()) {
+      setTrackError("Enter the artist and album title first.");
+      return;
+    }
+    setTrackLoading(true);
+    setTrackError("");
+    try {
+      const tracks = await fetchTracklist(form.artist, form.title, form.year);
+      set("tracklist", formatNumberedList(tracks));
+    } catch (e) {
+      setTrackError("Couldn't find a tracklist online — you can still type it in below.");
+    } finally {
+      setTrackLoading(false);
+    }
   }
 
   async function handleCoverFile(e) {
@@ -1502,11 +1714,18 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           </label>
 
           <div className="vc-field vc-field-wide">
-            <span>Label &amp; genre</span>
+            <span className="vc-field-label-row">
+              Label &amp; genre
+              <button type="button" className="vc-btn vc-btn-ghost vc-btn-sm" onClick={handleFetchLabelGenre} disabled={metaLoading}>
+                <Wand2 size={13} />
+                {metaLoading ? "Searching the web…" : "Auto-fill from the web"}
+              </button>
+            </span>
             <div className="vc-cover-row">
               <input value={form.label} onChange={(e) => set("label", e.target.value)} placeholder="Record label, e.g. Columbia Records" />
               <input value={form.genre} onChange={(e) => set("genre", e.target.value)} placeholder="Genre, e.g. Pop, Electropop" />
             </div>
+            {metaError && <p className="vc-error">{metaError}</p>}
           </div>
 
           <div className="vc-field vc-field-wide">
@@ -1702,13 +1921,20 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           </div>
 
           <label className="vc-field vc-field-wide">
-            <span>Tracklist (for the lyrics page)</span>
+            <span className="vc-field-label-row">
+              Tracklist (for the lyrics page)
+              <button type="button" className="vc-btn vc-btn-ghost vc-btn-sm" onClick={handleFetchTracks} disabled={trackLoading}>
+                <Wand2 size={13} />
+                {trackLoading ? "Searching the web…" : "Auto-fill from the web"}
+              </button>
+            </span>
             <textarea
               rows={5}
               value={form.tracklist}
               onChange={(e) => set("tracklist", e.target.value)}
               placeholder={"1. Track one\n2. Track two\n3. Track three"}
             />
+            {trackError && <p className="vc-error">{trackError}</p>}
           </label>
 
           <label className="vc-field vc-field-wide">
