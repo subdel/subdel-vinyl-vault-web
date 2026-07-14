@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon, QrCode } from "lucide-react";
+import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon, QrCode, GripVertical } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import QRCode from "qrcode";
 
@@ -104,6 +104,7 @@ function rowToRecord(row) {
     tracklist: row.tracklist || [],
     info: row.info || null,
     addedAt: Number(row.added_at) || Date.now(),
+    sortOrder: row.sort_order != null ? Number(row.sort_order) : Number(row.added_at) || Date.now(),
   };
 }
 
@@ -131,6 +132,7 @@ function recordToRow(rec) {
     tracklist: rec.tracklist || [],
     info: rec.info || null,
     added_at: rec.addedAt || Date.now(),
+    sort_order: rec.sortOrder ?? rec.addedAt ?? Date.now(),
   };
 }
 
@@ -479,7 +481,7 @@ export default function VinylCrate() {
     return [...list].sort((a, b) => {
       let av = a[sortField] ?? "";
       let bv = b[sortField] ?? "";
-      if (sortField === "year" || sortField === "addedAt") {
+      if (sortField === "year" || sortField === "addedAt" || sortField === "sortOrder") {
         av = Number(av) || 0;
         bv = Number(bv) || 0;
         return (av - bv) * dir;
@@ -593,6 +595,43 @@ export default function VinylCrate() {
     }
   }
 
+  async function handleReorder(draggedId, targetId, visibleList) {
+    if (draggedId === targetId) return;
+    const list = [...visibleList];
+    const draggedIdx = list.findIndex((r) => r.id === draggedId);
+    const targetIdx = list.findIndex((r) => r.id === targetId);
+    if (draggedIdx === -1 || targetIdx === -1) return;
+
+    const [moved] = list.splice(draggedIdx, 1);
+    const afterRemovalTargetIdx = list.findIndex((r) => r.id === targetId);
+    const insertAt = draggedIdx < targetIdx ? afterRemovalTargetIdx + 1 : afterRemovalTargetIdx;
+    list.splice(insertAt, 0, moved);
+
+    const movedIdx = list.findIndex((r) => r.id === draggedId);
+    const prev = list[movedIdx - 1];
+    const next = list[movedIdx + 1];
+    const prevOrder = prev ? prev.sortOrder ?? prev.addedAt : null;
+    const nextOrder = next ? next.sortOrder ?? next.addedAt : null;
+    let newOrder;
+    if (prevOrder != null && nextOrder != null) {
+      newOrder = (prevOrder + nextOrder) / 2;
+    } else if (prevOrder != null) {
+      newOrder = prevOrder + 1000;
+    } else if (nextOrder != null) {
+      newOrder = nextOrder - 1000;
+    } else {
+      newOrder = Date.now();
+    }
+
+    setRecords(records.map((r) => (r.id === draggedId ? { ...r, sortOrder: newOrder } : r)));
+    try {
+      await updateRecordDb(draggedId, { ...records.find((r) => r.id === draggedId), sortOrder: newOrder });
+    } catch (err) {
+      console.error("Couldn't reorder", err);
+      setSaveError(true);
+    }
+  }
+
   return (
     <div className="vc-root" data-theme={theme}>
       <style>{CSS}</style>
@@ -692,6 +731,7 @@ export default function VinylCrate() {
           total={scopedRecords ? scopedRecords.length : 0}
           activeTab={activeTab}
           canEdit={!!session}
+          onReorder={(draggedId, targetId) => handleReorder(draggedId, targetId, filtered)}
           entryNumbers={entryNumbers}
           query={query}
           setQuery={setQuery}
@@ -991,6 +1031,7 @@ function GridView({
   total,
   activeTab,
   canEdit,
+  onReorder,
   entryNumbers,
   query,
   setQuery,
@@ -1017,6 +1058,10 @@ function GridView({
   onAdd,
   saveError,
 }) {
+  const [draggedId, setDraggedId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
+  const dragEnabled = canEdit && sortField === "sortOrder";
+
   return (
     <main className="vc-main">
       <div className="vc-toolbar">
@@ -1029,8 +1074,15 @@ function GridView({
           />
         </div>
         <div className="vc-sort">
-          <select value={sortField} onChange={(e) => setSortField(e.target.value)}>
+          <select
+            value={sortField}
+            onChange={(e) => {
+              setSortField(e.target.value);
+              if (e.target.value === "sortOrder") setSortDir("asc");
+            }}
+          >
             <option value="addedAt">Added order</option>
+            <option value="sortOrder">My order (drag to arrange)</option>
             <option value="artist">Artist</option>
             <option value="title">Album title</option>
             <option value="year">Year</option>
@@ -1038,18 +1090,20 @@ function GridView({
             <option value="finish">Finish</option>
             <option value="version">Version</option>
           </select>
-          <button
-            className="vc-icon-btn"
-            title="Toggle sort direction"
-            onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
-          >
-            <ArrowUpDown size={14} strokeWidth={2} />
-            {sortField === "addedAt"
-              ? sortDir === "asc" ? "Oldest first" : "Newest first"
-              : sortField === "year"
-              ? sortDir === "asc" ? "Oldest first" : "Newest first"
-              : sortDir === "asc" ? "A–Z" : "Z–A"}
-          </button>
+          {sortField !== "sortOrder" && (
+            <button
+              className="vc-icon-btn"
+              title="Toggle sort direction"
+              onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+            >
+              <ArrowUpDown size={14} strokeWidth={2} />
+              {sortField === "addedAt"
+                ? sortDir === "asc" ? "Oldest first" : "Newest first"
+                : sortField === "year"
+                ? sortDir === "asc" ? "Oldest first" : "Newest first"
+                : sortDir === "asc" ? "A–Z" : "Z–A"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1176,6 +1230,12 @@ function GridView({
         <div className="vc-warning">Couldn't save to storage — your last change may not persist.</div>
       )}
 
+      {dragEnabled && (
+        <div className="vc-drag-hint">
+          <GripVertical size={13} /> Drag any cover to arrange your shelf your way.
+        </div>
+      )}
+
       {loading && (
         <div className="vc-empty">
           <Disc3 className="vc-spin-slow" size={40} strokeWidth={1} />
@@ -1208,10 +1268,42 @@ function GridView({
           {records.map((r, i) => (
             <button
               key={r.id}
-              className="vc-sleeve"
-              style={{ "--i": i }}
-              onClick={() => onOpen(r.id)}
+              className={`vc-sleeve ${dragEnabled ? "is-draggable" : ""} ${dragOverId === r.id ? "is-drag-over" : ""}`}
+              style={{ "--i": i, opacity: draggedId === r.id ? 0.35 : 1 }}
+              draggable={dragEnabled}
+              onDragStart={(e) => {
+                if (!dragEnabled) return;
+                setDraggedId(r.id);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                if (!dragEnabled) return;
+                e.preventDefault();
+                if (dragOverId !== r.id) setDragOverId(r.id);
+              }}
+              onDragLeave={() => {
+                if (dragOverId === r.id) setDragOverId(null);
+              }}
+              onDrop={(e) => {
+                if (!dragEnabled) return;
+                e.preventDefault();
+                if (draggedId) onReorder(draggedId, r.id);
+                setDraggedId(null);
+                setDragOverId(null);
+              }}
+              onDragEnd={() => {
+                setDraggedId(null);
+                setDragOverId(null);
+              }}
+              onClick={() => {
+                if (!draggedId) onOpen(r.id);
+              }}
             >
+              {dragEnabled && (
+                <span className="vc-drag-handle" title="Drag to reorder">
+                  <GripVertical size={14} />
+                </span>
+              )}
               <span className="vc-sleeve-stage">
                 <span className="vc-sleeve-cover">
                   <CoverArt coverUrl={r.coverUrl} artist={r.artist} title={r.title} hex={r.colorHex} alt={`${r.title} cover`} />
@@ -2033,8 +2125,9 @@ const CSS = `
 }
 .vc-header-actions { display: flex; align-items: center; gap: 16px; }
 .vc-theme-toggle {
-  width: 44px; height: 24px; border-radius: 999px; border: 1px solid var(--line);
-  background: var(--panel); padding: 2px; cursor: pointer; display: flex; align-items: center;
+  width: 44px; height: 24px; border-radius: 999px; border: 1px solid var(--glass-border);
+  background: var(--glass); backdrop-filter: blur(10px);
+  padding: 2px; cursor: pointer; display: flex; align-items: center;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 .vc-theme-thumb {
@@ -2085,12 +2178,14 @@ const CSS = `
 .vc-fab {
   position: fixed; bottom: 30px; right: 30px; z-index: 40;
   width: 54px; height: 54px; border-radius: 50%;
-  background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+  background: var(--glass); color: var(--ink); border: 1px solid var(--glass-border);
+  backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 12px 26px -8px #00000030; cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 12px 26px -8px #00000030; cursor: pointer;
   transition: transform 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .vc-fab:hover { transform: translateY(-2px); border-color: var(--accent); color: var(--accent); }
+.vc-fab:active { transform: translateY(0) scale(0.94); }
 .vc-fab-secondary { bottom: 96px; width: 46px; height: 46px; }
 .vc-share-modal {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
@@ -2113,10 +2208,14 @@ const CSS = `
   font-size: 0.82rem;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.1s ease;
   text-decoration: none;
 }
 .vc-btn:hover { border-color: var(--accent); color: var(--accent); }
+.vc-btn:active { transform: scale(0.97); }
+.vc-btn:focus-visible, .vc-icon-btn:focus-visible, .vc-fab:focus-visible, .vc-theme-toggle:focus-visible, .vc-chip:focus-visible, .vc-tab:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
 .vc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .vc-btn:disabled:hover { border-color: var(--line); color: var(--ink); }
 .vc-btn-primary { background: var(--accent); color: #fbfaf7; border-color: var(--accent); font-weight: 600; }
@@ -2180,6 +2279,22 @@ const CSS = `
   color: var(--ink); display: flex; flex-direction: column; gap: 9px;
   animation: vc-rise 0.5s ease both;
   animation-delay: calc(var(--i) * 35ms);
+  position: relative;
+  transition: transform 0.15s ease;
+}
+.vc-sleeve.is-draggable { cursor: grab; }
+.vc-sleeve.is-draggable:active { cursor: grabbing; }
+.vc-sleeve.is-drag-over .vc-sleeve-cover { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-tint); }
+.vc-drag-handle {
+  position: absolute; top: 6px; right: 6px; z-index: 4;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: #f5f3eee6; color: var(--ink-soft);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.vc-drag-hint {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.78rem; color: var(--ink-soft); margin-bottom: 16px;
 }
 .vc-sleeve-stage { position: relative; aspect-ratio: 1; }
 .vc-sleeve-cover {
@@ -2319,7 +2434,8 @@ const CSS = `
 .vc-track-link:hover { text-decoration: underline; }
 
 .vc-overlay {
-  position: fixed; inset: 0; background: #201e1acc; backdrop-filter: blur(3px);
+  position: fixed; inset: 0; background: #14131688; backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
   display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 50;
   animation: vc-fade 0.15s ease;
 }
