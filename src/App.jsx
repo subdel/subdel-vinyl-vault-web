@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon } from "lucide-react";
+import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon, QrCode } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import QRCode from "qrcode";
 
 const FINISH_OPTIONS = [
   "Standard (opaque)",
@@ -230,8 +231,11 @@ function loadImageEl(src) {
   });
 }
 
-async function generateCollectionImage(records) {
-  const ordered = [...records].sort((a, b) => a.addedAt - b.addedAt);
+async function generateCollectionImage(records, sortBy = "added") {
+  const ordered =
+    sortBy === "color"
+      ? [...records].sort((a, b) => (a.colorLabel || "").localeCompare(b.colorLabel || "") || a.addedAt - b.addedAt)
+      : [...records].sort((a, b) => a.addedAt - b.addedAt);
   const TARGET_WIDTH = 1920;
   const padding = 90;
   const gap = 22;
@@ -593,79 +597,82 @@ export default function VinylCrate() {
     <div className="vc-root" data-theme={theme}>
       <style>{CSS}</style>
 
-      <header className="vc-header">
-        <div className="vc-brand">
-          <Disc3 className="vc-brand-icon" size={24} strokeWidth={1.3} />
-          <div>
-            <h1>Sub Del's Vinyl Vault</h1>
-            <p>Collection archive</p>
+      <div className="vc-nav-glass">
+        <header className="vc-header">
+          <div className="vc-brand">
+            <Disc3 className="vc-brand-icon" size={24} strokeWidth={1.3} />
+            <div>
+              <h1>Sub Del's Vinyl Vault</h1>
+              <p>Collection archive</p>
+            </div>
           </div>
-        </div>
-        <div className="vc-header-actions">
-          {view === "grid" && activeTab !== "history" && scopedRecords && scopedRecords.length > 0 && (
-            <span className="vc-tally">{scopedRecords.length} {activeTab === "wishlist" ? "wanted" : "pressing"}{scopedRecords.length === 1 ? "" : "s"}</span>
-          )}
-          {view === "grid" && activeTab !== "history" && (
-            session ? (
-              <button
-                className="vc-btn vc-btn-primary"
-                onClick={openAdd}
-                disabled={records === null}
-                title={records === null ? "Loading your vault…" : undefined}
-              >
-                <Plus size={16} strokeWidth={2} />
-                {activeTab === "wishlist" ? "Add to Wishlist" : "Add Record"}
-              </button>
-            ) : null
-          )}
-          {!authLoading && (
-            session ? (
-              <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => supabase.auth.signOut()}>
-                Sign out
-              </button>
-            ) : (
-              <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => setLoginOpen(true)}>
-                Sign in
-              </button>
-            )
-          )}
-          <button
-            className="vc-theme-toggle"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            aria-label="Toggle theme"
-          >
-            <span className={`vc-theme-thumb ${theme === "dark" ? "is-dark" : ""}`}>
-              {theme === "dark" ? <Moon size={12} /> : <Sun size={12} />}
-            </span>
-          </button>
-        </div>
-      </header>
+          <div className="vc-header-actions">
+            {view === "grid" && activeTab !== "history" && scopedRecords && scopedRecords.length > 0 && (
+              <span className="vc-tally">{scopedRecords.length} {activeTab === "wishlist" ? "wanted" : "pressing"}{scopedRecords.length === 1 ? "" : "s"}</span>
+            )}
+            {view === "grid" && activeTab !== "history" && (
+              session ? (
+                <button
+                  className="vc-btn vc-btn-primary"
+                  onClick={openAdd}
+                  disabled={records === null}
+                  title={records === null ? "Loading your vault…" : undefined}
+                >
+                  <Plus size={16} strokeWidth={2} />
+                  {activeTab === "wishlist" ? "Add to Wishlist" : "Add Record"}
+                </button>
+              ) : null
+            )}
+            {!authLoading && (
+              session ? (
+                <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => supabase.auth.signOut()}>
+                  Sign out
+                </button>
+              ) : (
+                <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={() => setLoginOpen(true)}>
+                  Sign in
+                </button>
+              )
+            )}
+            <button
+              className="vc-theme-toggle"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label="Toggle theme"
+            >
+              <span className={`vc-theme-thumb ${theme === "dark" ? "is-dark" : ""}`}>
+                {theme === "dark" ? <Moon size={12} /> : <Sun size={12} />}
+              </span>
+            </button>
+          </div>
+        </header>
+
+        {view === "grid" && (
+          <nav className="vc-tabs">
+            <button
+              className={`vc-tab ${activeTab === "collection" ? "is-active" : ""}`}
+              onClick={() => switchTab("collection")}
+            >
+              Vault <span className="vc-tab-count">{collectionCount}</span>
+            </button>
+            <button
+              className={`vc-tab ${activeTab === "wishlist" ? "is-active" : ""}`}
+              onClick={() => switchTab("wishlist")}
+            >
+              Wishlist <span className="vc-tab-count">{wishlistCount}</span>
+            </button>
+            <button
+              className={`vc-tab ${activeTab === "history" ? "is-active" : ""}`}
+              onClick={() => switchTab("history")}
+            >
+              Collection <span className="vc-tab-count">{collectionCount + wishlistCount}</span>
+            </button>
+          </nav>
+        )}
+      </div>
 
       {loginOpen && <LoginModal onClose={() => setLoginOpen(false)} />}
 
-      {view === "grid" && (
-        <nav className="vc-tabs">
-          <button
-            className={`vc-tab ${activeTab === "collection" ? "is-active" : ""}`}
-            onClick={() => switchTab("collection")}
-          >
-            Vault <span className="vc-tab-count">{collectionCount}</span>
-          </button>
-          <button
-            className={`vc-tab ${activeTab === "wishlist" ? "is-active" : ""}`}
-            onClick={() => switchTab("wishlist")}
-          >
-            Wishlist <span className="vc-tab-count">{wishlistCount}</span>
-          </button>
-          <button
-            className={`vc-tab ${activeTab === "history" ? "is-active" : ""}`}
-            onClick={() => switchTab("history")}
-          >
-            Collection <span className="vc-tab-count">{collectionCount + wishlistCount}</span>
-          </button>
-        </nav>
-      )}
 
       {view === "grid" && activeTab === "history" && (
         <HistoryView
@@ -768,19 +775,64 @@ function HistoryView({ loading, records, onOpen }) {
         </div>
       )}
       {!loading && ordered.length > 0 && (
-        <>
-          <div className="vc-history-grid">
-            {ordered.map((r) => (
-              <button key={r.id} className="vc-history-tile" onClick={() => onOpen(r.id)} title={`${r.title} — ${r.artist}`}>
-                <CoverArt coverUrl={r.coverUrl} artist={r.artist} title={r.title} hex={r.colorHex} alt={`${r.title} cover`} />
-                {r.status === "wishlist" && <span className="vc-history-badge">Wishlist</span>}
-              </button>
-            ))}
-          </div>
-          <ShareCollectionButton records={ordered} />
-        </>
+        <div className="vc-history-grid">
+          {ordered.map((r) => (
+            <button key={r.id} className="vc-history-tile" onClick={() => onOpen(r.id)} title={`${r.title} — ${r.artist}`}>
+              <CoverArt coverUrl={r.coverUrl} artist={r.artist} title={r.title} hex={r.colorHex} alt={`${r.title} cover`} />
+              {r.status === "wishlist" && <span className="vc-history-badge">Wishlist</span>}
+            </button>
+          ))}
+        </div>
       )}
+      {!loading && ordered.length > 0 && <ShareCollectionButton records={ordered} />}
+      {!loading && <QRCodeButton />}
     </main>
+  );
+}
+
+function QRCodeButton() {
+  const [open, setOpen] = useState(false);
+  const [dataUrl, setDataUrl] = useState(null);
+  const [error, setError] = useState("");
+  const link = typeof window !== "undefined" ? window.location.origin : "";
+
+  async function handleClick() {
+    setOpen(true);
+    setError("");
+    try {
+      const url = await QRCode.toDataURL(link, {
+        width: 480,
+        margin: 2,
+        color: { dark: "#201e1a", light: "#f5f3ee" },
+      });
+      setDataUrl(url);
+    } catch (e) {
+      console.error(e);
+      setError("Couldn't generate the QR code.");
+    }
+  }
+
+  return (
+    <>
+      <button className="vc-fab vc-fab-secondary" onClick={handleClick} title="QR code for this vault">
+        <QrCode size={20} strokeWidth={1.8} />
+      </button>
+      {open && (
+        <div className="vc-overlay" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
+          <div className="vc-share-modal" style={{ maxWidth: 420, textAlign: "center" }}>
+            <div className="vc-modal-head">
+              <h3 className="vc-title-brand">Scan to view</h3>
+              <button type="button" className="vc-icon-btn" onClick={() => setOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+            {error && <p className="vc-error">{error}</p>}
+            {dataUrl && <img src={dataUrl} alt="QR code" style={{ width: "100%", maxWidth: 320, margin: "0 auto", display: "block", borderRadius: 8 }} />}
+            <p className="vc-mono" style={{ marginTop: 14, wordBreak: "break-all" }}>{link}</p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -804,7 +856,7 @@ function LoginModal({ onClose }) {
   }
 
   return (
-    <div className="vc-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="vc-overlay">
       <div className="vc-modal" style={{ maxWidth: 380 }}>
         <div className="vc-modal-head">
           <h3>Sign in</h3>
@@ -841,14 +893,13 @@ function ShareCollectionButton({ records }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [sortBy, setSortBy] = useState("added");
 
-  async function handleClick() {
-    setOpen(true);
+  async function generate(sort) {
     setLoading(true);
     setError("");
-    setResult(null);
     try {
-      const res = await generateCollectionImage(records);
+      const res = await generateCollectionImage(records, sort);
       setResult(res);
     } catch (e) {
       console.error(e);
@@ -856,6 +907,17 @@ function ShareCollectionButton({ records }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleClick() {
+    setOpen(true);
+    setResult(null);
+    generate(sortBy);
+  }
+
+  function handleSortChange(next) {
+    setSortBy(next);
+    generate(next);
   }
 
   function handleDownload() {
@@ -881,6 +943,25 @@ function ShareCollectionButton({ records }) {
               <button type="button" className="vc-icon-btn" onClick={() => setOpen(false)}>
                 <X size={18} />
               </button>
+            </div>
+            <div className="vc-share-sort">
+              <span>Sort by</span>
+              <div className="vc-chips">
+                <button
+                  className={`vc-chip ${sortBy === "added" ? "is-active" : ""}`}
+                  onClick={() => handleSortChange("added")}
+                  disabled={loading}
+                >
+                  Added order
+                </button>
+                <button
+                  className={`vc-chip ${sortBy === "color" ? "is-active" : ""}`}
+                  onClick={() => handleSortChange("color")}
+                  disabled={loading}
+                >
+                  Color
+                </button>
+              </div>
             </div>
             {loading && <p className="vc-muted">Generating your collection image…</p>}
             {error && <p className="vc-error">{error}</p>}
@@ -1272,17 +1353,23 @@ function FinishIcon({ type, size = 22 }) {
 
 function DiscFace({ record }) {
   const discImg = record.discImageUrl || null;
+  const [discLoaded, setDiscLoaded] = useState(false);
+  useEffect(() => {
+    setDiscLoaded(false);
+  }, [discImg]);
   if (discImg) {
     const x = record.discImageX ?? 50;
     const y = record.discImageY ?? 50;
     const zoom = (record.discImageZoom || 100) / 100;
     return (
       <span className="vc-disc-face">
+        {!discLoaded && <span className="vc-skeleton" style={{ borderRadius: "50%" }} />}
         <img
           className="vc-disc-face-img"
           src={discImg}
           alt=""
-          style={{ objectPosition: `${x}% ${y}%`, transform: `scale(${zoom})` }}
+          style={{ objectPosition: `${x}% ${y}%`, transform: `scale(${zoom})`, opacity: discLoaded ? 1 : 0 }}
+          onLoad={() => setDiscLoaded(true)}
         />
       </span>
     );
@@ -1334,14 +1421,27 @@ function AppleMusicIcon({ size = 18 }) {
 function CoverArt({ coverUrl, artist, title, hex, alt }) {
   const resolved = coverUrl || null;
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     setFailed(false);
+    setLoaded(false);
   }, [resolved]);
 
   if (!resolved || failed) {
     return <PlaceholderCover artist={artist} title={title} hex={hex} />;
   }
-  return <img src={resolved} alt={alt} onError={() => setFailed(true)} />;
+  return (
+    <>
+      {!loaded && <span className="vc-skeleton" />}
+      <img
+        src={resolved}
+        alt={alt}
+        style={{ opacity: loaded ? 1 : 0 }}
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+      />
+    </>
+  );
 }
 
 function PlaceholderCover({ artist, title, hex }) {
@@ -1578,7 +1678,7 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
   }
 
   return (
-    <div className="vc-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="vc-overlay">
       <div className="vc-modal" onKeyDown={handleKeyDown}>
         <div className="vc-modal-head">
           <h3>{editing ? "Edit record" : "Add a record"}</h3>
@@ -1859,6 +1959,9 @@ const CSS = `
   --accent-tint: #33415c14;
   --rust: #93463a;
   --radius: 8px;
+  --glass: rgba(245, 243, 238, 0.68);
+  --glass-border: rgba(221, 215, 200, 0.7);
+  --glass-highlight: rgba(255, 255, 255, 0.65);
   font-family: 'Inter', sans-serif;
   background: var(--paper);
   color: var(--ink);
@@ -1877,17 +1980,31 @@ const CSS = `
   --accent: #7c9cd6;
   --accent-tint: #7c9cd626;
   --rust: #d98a78;
+  --glass: rgba(22, 21, 26, 0.55);
+  --glass-border: rgba(56, 54, 63, 0.7);
+  --glass-highlight: rgba(255, 255, 255, 0.07);
 }
 .vc-root * { box-sizing: border-box; }
 .vc-mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.82em; color: var(--ink-soft); }
 
+.vc-nav-glass {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  margin: -30px -34px 30px;
+  padding: 18px 34px 0;
+  background: var(--glass);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 var(--glass-highlight), 0 8px 30px -18px #00000030;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
 .vc-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 20px;
-  margin-bottom: 30px;
-  border-bottom: 1px solid var(--line);
+  padding-bottom: 18px;
 }
 .vc-brand { display: flex; align-items: center; gap: 12px; }
 .vc-brand-icon { color: var(--accent); }
@@ -1933,7 +2050,7 @@ const CSS = `
   letter-spacing: 0.03em;
 }
 
-.vc-tabs { display: flex; gap: 6px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+.vc-tabs { display: flex; gap: 6px; }
 .vc-tab {
   background: transparent; border: none; border-bottom: 2px solid transparent;
   padding: 10px 4px 12px; margin-right: 22px; cursor: pointer;
@@ -1974,12 +2091,15 @@ const CSS = `
   transition: transform 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .vc-fab:hover { transform: translateY(-2px); border-color: var(--accent); color: var(--accent); }
+.vc-fab-secondary { bottom: 96px; width: 46px; height: 46px; }
 .vc-share-modal {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
   width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto; padding: 24px 26px;
   box-shadow: 0 30px 60px -20px #00000040;
 }
 .vc-share-preview { width: 100%; display: block; border-radius: 8px; margin: 14px 0; border: 1px solid var(--line); }
+.vc-share-sort { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.vc-share-sort > span { font-size: 0.76rem; color: var(--ink-soft); font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.04em; }
 
 .vc-btn {
   display: inline-flex;
@@ -2103,6 +2223,21 @@ const CSS = `
   display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #00000022 inset;
 }
 .vc-disc-hole { width: 22%; height: 22%; border-radius: 50%; background: var(--paper); box-shadow: 0 0 0 1px #00000022 inset; }
+.vc-skeleton {
+  position: absolute; inset: 0;
+  background: linear-gradient(100deg, var(--line) 30%, var(--panel-2) 50%, var(--line) 70%);
+  background-size: 200% 100%;
+  animation: vc-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes vc-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.vc-sleeve-cover img, .vc-stage-sleeve img, .vc-history-tile img {
+  transition: opacity 0.35s ease;
+}
+.vc-disc-face-img { transition: opacity 0.35s ease; }
+
 .vc-placeholder {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   font-family: 'Spectral', serif; font-size: 2.6rem;
