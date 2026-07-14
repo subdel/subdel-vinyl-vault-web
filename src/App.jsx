@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Wand2 } from "lucide-react";
+import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const FINISH_OPTIONS = [
@@ -313,48 +313,6 @@ function geniusLink(artist, track) {
   return `https://genius.com/search?q=${encodeURIComponent(`${artist} ${track}`)}`;
 }
 
-// ---------- AI auto-fill via Supabase Edge Function proxy ----------
-async function callClaudeProxy(prompt, maxTokens = 800) {
-  const { data, error } = await supabase.functions.invoke("claude-proxy", {
-    body: { prompt, max_tokens: maxTokens },
-  });
-  if (error) throw error;
-  const text = (data?.content || [])
-    .filter((b) => b.type === "text")
-    .map((b) => b.text)
-    .join(" ")
-    .trim();
-  return text;
-}
-
-async function fetchAlbumStory(artist, title, year) {
-  const prompt = `Give a short, factual background on the album "${title}" by ${artist}${year ? ` (${year})` : ""}. Cover: when/how it was recorded, its context or reception, and one interesting fact. Plain prose, 3-5 sentences, no headers, no markdown, no lyrics or quoted lyrics.`;
-  const text = await callClaudeProxy(prompt, 1000);
-  return text || "No background found for this pressing.";
-}
-
-async function fetchLabelGenre(artist, title, year) {
-  const prompt = `For the album "${title}" by ${artist}${year ? ` (${year})` : ""}, find the original record label and its music genre(s). Respond with ONLY a JSON object like {"label": "Columbia Records", "genre": "Pop, Electropop"} and nothing else — no markdown, no code fences, no commentary. Use short, common genre names (e.g. Pop, Rock, Indie, Hip-Hop, Electronic). If either is genuinely unknown, use an empty string for that field.`;
-  const text = await callClaudeProxy(prompt, 400);
-  const cleaned = text.replace(/```json|```/g, "").trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  const parsed = JSON.parse(match ? match[0] : cleaned);
-  return {
-    label: parsed && parsed.label ? String(parsed.label).trim() : "",
-    genre: parsed && parsed.genre ? String(parsed.genre).trim() : "",
-  };
-}
-
-async function fetchTracklist(artist, title, year) {
-  const prompt = `Find the official tracklist for the album "${title}" by ${artist}${year ? ` (${year})` : ""}. Respond with ONLY a JSON array of the track titles as strings, in the correct running order, and nothing else — no markdown, no code fences, no commentary.`;
-  const text = await callClaudeProxy(prompt, 1000);
-  const cleaned = text.replace(/```json|```/g, "").trim();
-  const match = cleaned.match(/\[[\s\S]*\]/);
-  const parsed = JSON.parse(match ? match[0] : cleaned);
-  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error("No tracklist found");
-  return parsed.map((t) => String(t).trim()).filter(Boolean);
-}
-
 
 // ================= APP =================
 export default function VinylCrate() {
@@ -378,6 +336,16 @@ export default function VinylCrate() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginOpen, setLoginOpen] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("vv-theme") : null;
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("vv-theme", theme);
+  }, [theme]);
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -611,16 +579,6 @@ export default function VinylCrate() {
     }
   }
 
-  async function saveInfo(id, info) {
-    setRecords(records.map((r) => (r.id === id ? { ...r, info } : r)));
-    try {
-      await updateRecordDb(id, { ...records.find((r) => r.id === id), info });
-    } catch (err) {
-      console.error("Couldn't save info", err);
-      setSaveError(true);
-    }
-  }
-
   async function moveToCollection(id) {
     setRecords(records.map((r) => (r.id === id ? { ...r, status: "owned" } : r)));
     try {
@@ -632,7 +590,7 @@ export default function VinylCrate() {
   }
 
   return (
-    <div className="vc-root">
+    <div className="vc-root" data-theme={theme}>
       <style>{CSS}</style>
 
       <header className="vc-header">
@@ -671,6 +629,16 @@ export default function VinylCrate() {
               </button>
             )
           )}
+          <button
+            className="vc-theme-toggle"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label="Toggle theme"
+          >
+            <span className={`vc-theme-thumb ${theme === "dark" ? "is-dark" : ""}`}>
+              {theme === "dark" ? <Moon size={12} /> : <Sun size={12} />}
+            </span>
+          </button>
         </div>
       </header>
 
@@ -760,7 +728,6 @@ export default function VinylCrate() {
           onEdit={() => openEdit(selected)}
           onDelete={() => deleteRecord(selected.id)}
           onLyrics={() => setView("lyrics")}
-          onSaveInfo={(info) => saveInfo(selected.id, info)}
           onMoveToCollection={() => moveToCollection(selected.id)}
         />
       )}
@@ -910,7 +877,7 @@ function ShareCollectionButton({ records }) {
         <div className="vc-overlay" onMouseDown={(e) => e.target === e.currentTarget && setOpen(false)}>
           <div className="vc-share-modal">
             <div className="vc-modal-head">
-              <h3>Share your collection</h3>
+              <h3 className="vc-title-brand">Share your collection</h3>
               <button type="button" className="vc-icon-btn" onClick={() => setOpen(false)}>
                 <X size={18} />
               </button>
@@ -1387,31 +1354,15 @@ function PlaceholderCover({ artist, title, hex }) {
 }
 
 // ================= DETAIL VIEW =================
-function DetailView({ record, entryNo, canEdit, onBack, onEdit, onDelete, onLyrics, onSaveInfo, onMoveToCollection }) {
+function DetailView({ record, entryNo, canEdit, onBack, onEdit, onDelete, onLyrics, onMoveToCollection }) {
   const [revealed, setRevealed] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [infoLoading, setInfoLoading] = useState(false);
-  const [infoError, setInfoError] = useState(false);
   const links = streamLinks(record.artist, record.title);
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setRevealed(true));
     return () => cancelAnimationFrame(t);
   }, [record.id]);
-
-  async function handleMoreInfo() {
-    setInfoLoading(true);
-    setInfoError(false);
-    try {
-      const text = await fetchAlbumStory(record.artist, record.title, record.year);
-      onSaveInfo(text);
-    } catch (e) {
-      console.error(e);
-      setInfoError(true);
-    } finally {
-      setInfoLoading(false);
-    }
-  }
 
   return (
     <main className="vc-detail">
@@ -1498,28 +1449,12 @@ function DetailView({ record, entryNo, canEdit, onBack, onEdit, onDelete, onLyri
             </button>
           )}
 
-          {(record.info || canEdit) && (
+          {record.info && (
             <div className="vc-story">
               <div className="vc-story-head">
                 <span>More info</span>
               </div>
-              {canEdit && !record.info && !infoLoading && (
-                <button className="vc-btn vc-btn-ghost" onClick={handleMoreInfo}>
-                  Look up this album's story
-                </button>
-              )}
-              {infoLoading && <p className="vc-muted">Searching the web for background…</p>}
-              {infoError && <p className="vc-error">Couldn't fetch info — try again in a moment.</p>}
-              {record.info && !infoLoading && (
-                <>
-                  <p className="vc-story-text">{record.info}</p>
-                  {canEdit && (
-                    <button className="vc-btn vc-btn-ghost vc-btn-sm" onClick={handleMoreInfo}>
-                      Refresh
-                    </button>
-                  )}
-                </>
-              )}
+              <p className="vc-story-text">{record.info}</p>
             </div>
           )}
 
@@ -1586,51 +1521,12 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
   const [discLoading, setDiscLoading] = useState(false);
   const [discError, setDiscError] = useState("");
   const discPreview = form.discImageUrl || null;
-  const [metaLoading, setMetaLoading] = useState(false);
-  const [metaError, setMetaError] = useState("");
-  const [trackLoading, setTrackLoading] = useState(false);
-  const [trackError, setTrackError] = useState("");
   useEffect(() => {
     firstRef.current?.focus();
   }, []);
 
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
-  }
-
-  async function handleFetchLabelGenre() {
-    if (!form.artist.trim() || !form.title.trim()) {
-      setMetaError("Add the artist and album title first.");
-      return;
-    }
-    setMetaError("");
-    setMetaLoading(true);
-    try {
-      const { label, genre } = await fetchLabelGenre(form.artist, form.title, form.year);
-      if (!label && !genre) throw new Error("Nothing found");
-      setForm((f) => ({ ...f, label: label || f.label, genre: genre || f.genre }));
-    } catch (err) {
-      setMetaError("Couldn't find that online — you can still type it in.");
-    } finally {
-      setMetaLoading(false);
-    }
-  }
-
-  async function handleFetchTracks() {
-    if (!form.artist.trim() || !form.title.trim()) {
-      setTrackError("Enter the artist and album title first.");
-      return;
-    }
-    setTrackLoading(true);
-    setTrackError("");
-    try {
-      const tracks = await fetchTracklist(form.artist, form.title, form.year);
-      set("tracklist", formatNumberedList(tracks));
-    } catch (e) {
-      setTrackError("Couldn't find a tracklist online — you can still type it in below.");
-    } finally {
-      setTrackLoading(false);
-    }
   }
 
   async function handleCoverFile(e) {
@@ -1714,18 +1610,11 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           </label>
 
           <div className="vc-field vc-field-wide">
-            <span className="vc-field-label-row">
-              Label &amp; genre
-              <button type="button" className="vc-btn vc-btn-ghost vc-btn-sm" onClick={handleFetchLabelGenre} disabled={metaLoading}>
-                <Wand2 size={13} />
-                {metaLoading ? "Searching the web…" : "Auto-fill from the web"}
-              </button>
-            </span>
+            <span>Label &amp; genre</span>
             <div className="vc-cover-row">
               <input value={form.label} onChange={(e) => set("label", e.target.value)} placeholder="Record label, e.g. Columbia Records" />
               <input value={form.genre} onChange={(e) => set("genre", e.target.value)} placeholder="Genre, e.g. Pop, Electropop" />
             </div>
-            {metaError && <p className="vc-error">{metaError}</p>}
           </div>
 
           <div className="vc-field vc-field-wide">
@@ -1921,20 +1810,13 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           </div>
 
           <label className="vc-field vc-field-wide">
-            <span className="vc-field-label-row">
-              Tracklist (for the lyrics page)
-              <button type="button" className="vc-btn vc-btn-ghost vc-btn-sm" onClick={handleFetchTracks} disabled={trackLoading}>
-                <Wand2 size={13} />
-                {trackLoading ? "Searching the web…" : "Auto-fill from the web"}
-              </button>
-            </span>
+            <span>Tracklist (for the lyrics page)</span>
             <textarea
               rows={5}
               value={form.tracklist}
               onChange={(e) => set("tracklist", e.target.value)}
               placeholder={"1. Track one\n2. Track two\n3. Track three"}
             />
-            {trackError && <p className="vc-error">{trackError}</p>}
           </label>
 
           <label className="vc-field vc-field-wide">
@@ -1983,6 +1865,18 @@ const CSS = `
   min-height: 100%;
   padding: 30px 34px 64px;
   box-sizing: border-box;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.vc-root[data-theme="dark"] {
+  --ink: #f0ede4;
+  --ink-soft: #a29c8c;
+  --paper: #16151a;
+  --panel: #201f26;
+  --panel-2: #26252d;
+  --line: #38363f;
+  --accent: #7c9cd6;
+  --accent-tint: #7c9cd626;
+  --rust: #d98a78;
 }
 .vc-root * { box-sizing: border-box; }
 .vc-mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.82em; color: var(--ink-soft); }
@@ -2005,6 +1899,13 @@ const CSS = `
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
+.vc-title-brand {
+  font-family: 'Inter', sans-serif !important;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  font-size: 1.15rem !important;
+}
 .vc-brand p {
   margin: 2px 0 0;
   font-size: 0.72rem;
@@ -2014,6 +1915,17 @@ const CSS = `
   letter-spacing: 0.08em;
 }
 .vc-header-actions { display: flex; align-items: center; gap: 16px; }
+.vc-theme-toggle {
+  width: 44px; height: 24px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--panel); padding: 2px; cursor: pointer; display: flex; align-items: center;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.vc-theme-thumb {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--paper);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.2s cubic-bezier(.4,0,.2,1), background 0.2s ease;
+}
+.vc-theme-thumb.is-dark { transform: translateX(20px); }
 .vc-tally {
   font-family: 'IBM Plex Mono', monospace;
   font-size: 0.72rem;
