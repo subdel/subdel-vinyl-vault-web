@@ -408,11 +408,15 @@ export default function VinylCrate() {
 
   const entryNumbers = useMemo(() => {
     if (!scopedRecords) return {};
-    const ordered = [...scopedRecords].sort((a, b) => a.addedAt - b.addedAt);
+    const ordered = [...scopedRecords].sort((a, b) =>
+      sortField === "sortOrder"
+        ? (a.sortOrder ?? a.addedAt) - (b.sortOrder ?? b.addedAt)
+        : a.addedAt - b.addedAt
+    );
     const map = {};
     ordered.forEach((r, i) => (map[r.id] = i + 1));
     return map;
-  }, [scopedRecords]);
+  }, [scopedRecords, sortField]);
 
   const distinctColors = useMemo(() => {
     if (!scopedRecords) return [];
@@ -1521,7 +1525,7 @@ function DiscStack({ record }) {
         <span
           key={i}
           className="vc-disc-layer"
-          style={{ "--disc-i": i, zIndex: discs.length - i }}
+          style={{ "--disc-i": i, "--disc-n": discs.length, zIndex: discs.length - i }}
         >
           <DiscFace record={d} />
         </span>
@@ -2174,6 +2178,61 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
                     <input type="file" accept="image/*" hidden onChange={(e) => handleExtraDiscFile(idx, e)} />
                   </label>
                 </div>
+                {disc.discImageUrl && (
+                  <div className="vc-disc-position">
+                    <div className="vc-disc-position-preview">
+                      <img
+                        className="vc-disc-position-img"
+                        src={disc.discImageUrl}
+                        alt={`Vinyl ${idx + 2} preview`}
+                        style={{
+                          objectPosition: `${disc.discImageX ?? 50}% ${disc.discImageY ?? 50}%`,
+                          transform: `scale(${(disc.discImageZoom ?? 100) / 100})`,
+                        }}
+                      />
+                      <span className="vc-disc-position-mask" />
+                    </div>
+                    <div className="vc-disc-position-controls">
+                      <label className="vc-slider-row">
+                        <span>Zoom</span>
+                        <input
+                          type="range"
+                          min="100"
+                          max="280"
+                          value={disc.discImageZoom ?? 100}
+                          onChange={(e) => updateExtraDisc(idx, "discImageZoom", Number(e.target.value))}
+                        />
+                      </label>
+                      <label className="vc-slider-row">
+                        <span>Shift left / right</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={disc.discImageX ?? 50}
+                          onChange={(e) => updateExtraDisc(idx, "discImageX", Number(e.target.value))}
+                        />
+                      </label>
+                      <label className="vc-slider-row">
+                        <span>Shift up / down</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          value={disc.discImageY ?? 50}
+                          onChange={(e) => updateExtraDisc(idx, "discImageY", Number(e.target.value))}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="vc-btn vc-btn-ghost vc-btn-sm"
+                        onClick={() => updateExtraDisc(idx, "discImageUrl", "")}
+                      >
+                        Remove image
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2231,6 +2290,7 @@ const CSS = `
   --glass: rgba(245, 243, 238, 0.68);
   --glass-border: rgba(221, 215, 200, 0.7);
   --glass-highlight: rgba(255, 255, 255, 0.65);
+  --badge-bg: rgba(245, 243, 238, 0.9);
   font-family: 'Inter', sans-serif;
   background: var(--paper);
   color: var(--ink);
@@ -2252,6 +2312,7 @@ const CSS = `
   --glass: rgba(22, 21, 26, 0.55);
   --glass-border: rgba(56, 54, 63, 0.7);
   --glass-highlight: rgba(255, 255, 255, 0.07);
+  --badge-bg: rgba(32, 31, 38, 0.88);
 }
 .vc-root * { box-sizing: border-box; }
 .vc-mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.82em; color: var(--ink-soft); }
@@ -2349,7 +2410,7 @@ const CSS = `
 .vc-history-badge {
   position: absolute; bottom: 8px; left: 8px;
   font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.04em; text-transform: uppercase;
-  background: #f5f3eee6; color: var(--ink-soft); padding: 3px 7px; border-radius: 3px; backdrop-filter: blur(2px);
+  background: var(--badge-bg); color: var(--ink-soft); padding: 3px 7px; border-radius: 3px; backdrop-filter: blur(2px);
 }
 
 .vc-fab {
@@ -2437,7 +2498,7 @@ const CSS = `
 .vc-chip.is-active { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
 .vc-chip-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; border: 1px solid #0002; }
 
-.vc-warning { background: #f3e3de; border: 1px solid var(--rust); color: #6e2c22; padding: 10px 14px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 16px; }
+.vc-warning { background: color-mix(in srgb, var(--rust) 14%, var(--paper)); border: 1px solid var(--rust); color: var(--rust); padding: 10px 14px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 16px; }
 
 .vc-empty {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -2465,7 +2526,7 @@ const CSS = `
 .vc-drag-handle {
   position: absolute; top: 6px; right: 6px; z-index: 4;
   width: 24px; height: 24px; border-radius: 50%;
-  background: #f5f3eee6; color: var(--ink-soft);
+  background: var(--badge-bg); color: var(--ink-soft);
   display: flex; align-items: center; justify-content: center;
   backdrop-filter: blur(2px);
 }
@@ -2492,7 +2553,7 @@ const CSS = `
 .vc-sleeve-no {
   position: absolute; top: 8px; left: 8px; z-index: 3;
   font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.04em;
-  background: #f5f3eee6; color: var(--ink-soft); padding: 3px 6px; border-radius: 3px;
+  background: var(--badge-bg); color: var(--ink-soft); padding: 3px 6px; border-radius: 3px;
   backdrop-filter: blur(2px);
 }
 .vc-sleeve-highlight {
@@ -2504,9 +2565,16 @@ const CSS = `
 .vc-stage-highlight { top: 12px; right: 12px; font-size: 0.66rem; padding: 4px 9px; }
 .vc-disc-layer {
   position: absolute; inset: 0;
-  transform: translate(calc(var(--disc-i) * -7%), calc(var(--disc-i) * 6%));
-  transition: transform 0.3s cubic-bezier(.2,.8,.2,1);
+  transform: translateX(0);
+  transition: transform 0.6s cubic-bezier(.16,1,.3,1);
 }
+/* On reveal, the LAST disc travels the container's full distance; discs in front trail left in equal steps.
+   (i - (n-1)) is 0 for the back disc and negative for those in front, so no disc ever exceeds the single-disc bound. */
+.vc-sleeve:hover .vc-disc-layer,
+.vc-stage.is-revealed .vc-disc-layer {
+  transform: translateX(calc((var(--disc-i, 0) - (var(--disc-n, 1) - 1)) / max(calc(var(--disc-n, 1) - 1), 1) * var(--disc-spread, 20%)));
+}
+.vc-stage-disc { --disc-spread: 14%; }
 .vc-disc-face {
   position: absolute; inset: 0; border-radius: 50%; overflow: hidden;
 }
@@ -2565,9 +2633,13 @@ const CSS = `
   box-shadow: 0 18px 34px -20px #00000038;
 }
 .vc-stage.is-revealed .vc-stage-disc {
-  transform: translateX(24%) rotate(360deg);
+  transform: translateX(24%);
   opacity: 1;
-  animation: vc-record-spin 26s linear infinite;
+}
+.vc-stage-disc .vc-disc-face { transition: transform 1.1s cubic-bezier(.16,1,.3,1); }
+.vc-stage.is-revealed .vc-disc-layer > .vc-disc-face {
+  transform: rotate(360deg);
+  animation: vc-record-rotate 26s linear infinite;
   animation-delay: 1.1s;
 }
 .vc-stage-label {
@@ -2716,9 +2788,9 @@ const CSS = `
 @keyframes vc-pop { from { opacity: 0; transform: scale(0.96) translateY(6px); } to { opacity: 1; transform: scale(1) translateY(0); } }
 @keyframes vc-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes vc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes vc-record-spin { from { transform: translateX(24%) rotate(0deg); } to { transform: translateX(24%) rotate(360deg); } }
+@keyframes vc-record-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .vc-sleeve, .vc-sleeve-disc, .vc-stage-disc, .vc-spin-slow { animation: none !important; transition: none !important; }
+  .vc-sleeve, .vc-sleeve-disc, .vc-stage-disc, .vc-disc-layer, .vc-disc-face, .vc-spin-slow { animation: none !important; transition: none !important; }
 }
 `;
