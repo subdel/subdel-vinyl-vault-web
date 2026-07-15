@@ -470,7 +470,7 @@ export default function VinylCrate() {
     if (!scopedRecords) return [];
     const map = new Map();
     scopedRecords.forEach((r) => {
-      if (r.colorLabel && !map.has(r.colorLabel)) map.set(r.colorLabel, r.colorHex);
+      if (r.colorLabel && r.finish !== "Picture disc" && !map.has(r.colorLabel)) map.set(r.colorLabel, r.colorHex);
     });
     return Array.from(map.entries());
   }, [scopedRecords]);
@@ -518,7 +518,7 @@ export default function VinylCrate() {
       );
     }
     if (colorFilter) {
-      list = list.filter((r) => r.colorLabel === colorFilter);
+      list = list.filter((r) => r.colorLabel === colorFilter && r.finish !== "Picture disc");
     }
     if (finishFilter) {
       list = list.filter((r) => r.finish === finishFilter);
@@ -896,7 +896,7 @@ function InsightsView({ records }) {
       return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
     };
     return {
-      colors: count((r) => [r.colorLabel]).slice(0, 8),
+      colors: count((r) => [r.finish === "Picture disc" ? null : r.colorLabel]).slice(0, 8),
       colorHexes: Object.fromEntries(owned.filter((r) => r.colorLabel).map((r) => [r.colorLabel, r.colorHex])),
       years: count((r) => [r.year]).slice(0, 8),
       genres: count((r) => (r.genre || "").split(",").map((g) => g.trim())).slice(0, 8),
@@ -1825,7 +1825,7 @@ function DetailView({ record, entryNo, canEdit, onBack, onEdit, onDelete, onLyri
             <span className="vc-mono">{record.year || "Year unknown"}</span>
             <span className="vc-dot-sep">·</span>
             <span className="vc-mono">{record.catalogNo || "No catalog #"}</span>
-            {record.colorLabel && (
+            {record.colorLabel && record.finish !== "Picture disc" && (
               <>
                 <span className="vc-dot-sep">·</span>
                 <span className="vc-color-tag">
