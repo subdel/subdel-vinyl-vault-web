@@ -353,6 +353,10 @@ export default function VinylCrate() {
 
   useEffect(() => {
     localStorage.setItem("vv-theme", theme);
+    const bg = theme === "dark" ? "#16151a" : "#f5f3ee";
+    document.documentElement.style.background = bg;
+    document.body.style.background = bg;
+    document.documentElement.style.colorScheme = theme;
   }, [theme]);
 
 
@@ -903,6 +907,7 @@ function QRCodeButton() {
 function LoginModal({ onClose }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(() => localStorage.getItem("vv-remember") !== "0");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -910,6 +915,7 @@ function LoginModal({ onClose }) {
     e.preventDefault();
     setError("");
     setLoading(true);
+    localStorage.setItem("vv-remember", remember ? "1" : "0");
     const { error: err } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (err) {
@@ -923,7 +929,7 @@ function LoginModal({ onClose }) {
     <div className="vc-overlay">
       <div className="vc-modal" style={{ maxWidth: 380 }}>
         <div className="vc-modal-head">
-          <h3>Sign in</h3>
+          <h3 className="vc-title-brand">Sign in</h3>
           <button type="button" className="vc-icon-btn" onClick={onClose}>
             <X size={18} />
           </button>
@@ -931,11 +937,15 @@ function LoginModal({ onClose }) {
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <label className="vc-field">
             <span>Email</span>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+            <input type="email" name="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
           </label>
           <label className="vc-field">
             <span>Password</span>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <input type="password" name="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          </label>
+          <label className="vc-remember">
+            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            <span>Remember me on this device</span>
           </label>
           {error && <p className="vc-error">{error}</p>}
           <div className="vc-modal-actions">
@@ -1872,7 +1882,7 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
     <div className="vc-overlay">
       <div className="vc-modal" onKeyDown={handleKeyDown}>
         <div className="vc-modal-head">
-          <h3>{editing ? "Edit record" : "Add a record"}</h3>
+          <h3 className="vc-title-brand">{editing ? "Edit record" : "Add a record"}</h3>
           <button type="button" className="vc-icon-btn" onClick={onClose}>
             <X size={18} />
           </button>
@@ -2276,6 +2286,8 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
+html, body, #root { margin: 0; padding: 0; min-height: 100%; }
+
 .vc-root {
   --ink: #201e1a;
   --ink-soft: #6b6558;
@@ -2294,7 +2306,7 @@ const CSS = `
   font-family: 'Inter', sans-serif;
   background: var(--paper);
   color: var(--ink);
-  min-height: 100%;
+  min-height: 100vh;
   padding: 30px 34px 64px;
   box-sizing: border-box;
   transition: background 0.2s ease, color 0.2s ease;
@@ -2782,6 +2794,8 @@ const CSS = `
 .vc-finish-option.is-active { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); }
 .vc-finish-option.is-active svg { color: var(--accent); }
 .vc-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; align-items: center; }
+.vc-remember { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--ink-soft); cursor: pointer; user-select: none; }
+.vc-remember input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
 .vc-form-error { margin: 0 auto 0 0; }
 
 @keyframes vc-fade { from { opacity: 0; } to { opacity: 1; } }
