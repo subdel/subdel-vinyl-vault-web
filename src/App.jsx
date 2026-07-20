@@ -1265,9 +1265,11 @@ class GalleryTitle {
     });
     this.mesh = new Mesh(gl, { geometry, program });
     const aspect = width / height;
-    const textHeight = plane.scale.y * 0.11;
+    // Child of the plane: scale/position are fractions of the parent, so this
+    // stays correct no matter when the plane itself gets resized.
+    const textHeight = 0.12;
     this.mesh.scale.set(textHeight * aspect, textHeight, 1);
-    this.mesh.position.y = -plane.scale.y * 0.5 - textHeight * 0.5 - 0.28;
+    this.mesh.position.y = -0.5 - textHeight * 0.5 - 0.05;
     this.mesh.setParent(plane);
   }
 }
@@ -1367,7 +1369,7 @@ class GalleryMedia {
     const x = this.plane.position.x;
     const H = this.viewport.width / 2;
     if (this.bend === 0) {
-      this.plane.position.y = 0;
+      this.plane.position.y = this.yLift || 0;
       this.plane.rotation.z = 0;
     } else {
       const B_abs = Math.abs(this.bend);
@@ -1404,10 +1406,12 @@ class GalleryMedia {
     if (viewport) this.viewport = viewport;
     // Square planes: same pixel side for width and height — record sleeves.
     this.scale = this.screen.height / 1500;
-    const sidePx = 950 * this.scale;
+    const sidePx = 860 * this.scale;
     this.plane.scale.y = (this.viewport.height * sidePx) / this.screen.height;
     this.plane.scale.x = (this.viewport.width * sidePx) / this.screen.width;
     this.plane.program.uniforms.uPlaneSizes.value = [this.plane.scale.x, this.plane.scale.y];
+    // Lift covers a bit above center so the label below never clips.
+    this.yLift = this.plane.scale.y * 0.09;
     this.padding = 1.4;
     this.width = this.plane.scale.x + this.padding;
     this.widthTotal = this.width * this.length;
@@ -1598,6 +1602,16 @@ function CircularGallery({
 // ================= ABOUT ME =================
 function AboutView({ records, theme }) {
   const rootRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => {
+      if (window.scrollY > 30) setScrolled(true);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // All covers, alphabetically by artist (then title): Aerosmith → Lady Gaga → …
   const galleryItems = useMemo(() => {
@@ -1638,6 +1652,10 @@ function AboutView({ records, theme }) {
         <p className="vc-essay-eyebrow">About</p>
         <h2>Through Sound.</h2>
         <p className="vc-essay-sub">A personal archive told through vinyl.</p>
+        <div className={`vc-essay-scrollhint ${scrolled ? "is-hidden" : ""}`} aria-hidden="true">
+          Scroll
+          <span className="vc-essay-scrollhint-arrow">↓</span>
+        </div>
       </section>
 
       {/* 01 — WHY MUSIC */}
@@ -1735,7 +1753,7 @@ function AboutView({ records, theme }) {
           <div className="vc-essay-gallery">
             <CircularGallery
               items={galleryItems}
-              bend={2}
+              bend={0}
               textColor={theme === "dark" ? "#c3cadd" : "#33415c"}
               borderRadius={0.04}
               font={'500 26px "IBM Plex Mono"'}
@@ -3487,15 +3505,36 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
 .vc-essay-block.is-visible { opacity: 1; transform: none; }
 
 .vc-essay-hero {
-  min-height: 72vh;
+  min-height: 78vh; position: relative;
   display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
 }
 .vc-essay-hero h2 {
-  font-family: 'Spectral', serif; font-weight: 500; letter-spacing: -0.01em;
-  font-size: clamp(3.2rem, 9vw, 6rem); line-height: 1.02;
+  font-family: 'Inter', sans-serif; font-weight: 600;
+  letter-spacing: 0.07em; text-transform: uppercase;
+  font-size: clamp(2.4rem, 6.4vw, 4.2rem); line-height: 1.08;
   margin: 0 0 20px; color: var(--ink);
 }
 .vc-essay-sub { font-size: 1.02rem; color: var(--ink-soft); margin: 0; }
+
+.vc-essay-scrollhint {
+  position: absolute; bottom: 26px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--ink-soft); opacity: 0.55;
+  transition: opacity 0.5s ease;
+  pointer-events: none;
+}
+.vc-essay-scrollhint-arrow {
+  display: inline-block; letter-spacing: 0;
+  animation: vc-scrollhint-bob 1.6s ease-in-out infinite;
+}
+@keyframes vc-scrollhint-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(6px); }
+}
+.vc-essay-scrollhint.is-hidden { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .vc-essay-scrollhint-arrow { animation: none; } }
 
 .vc-essay-eyebrow {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;
@@ -3503,24 +3542,25 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
   color: var(--accent); margin: 0 0 18px;
 }
 
-.vc-essay-block:not(.vc-essay-hero):not(.vc-essay-closing) { padding: 15vh 0; }
+.vc-essay-block:not(.vc-essay-hero):not(.vc-essay-closing) { padding: 8vh 0; }
 .vc-essay-block h3 {
-  font-family: 'Spectral', serif; font-weight: 500;
-  font-size: clamp(1.8rem, 4.4vw, 2.7rem); line-height: 1.16;
-  margin: 0 0 26px; color: var(--ink);
+  font-family: 'Inter', sans-serif; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: clamp(1.35rem, 2.9vw, 1.95rem); line-height: 1.28;
+  margin: 0 0 24px; color: var(--ink);
 }
 .vc-essay-block p:not(.vc-essay-eyebrow):not(.vc-essay-accent):not(.vc-essay-record):not(.vc-essay-sig):not(.vc-essay-sig-final) {
   font-size: 1rem; line-height: 1.78; color: var(--ink-soft); margin: 0 0 16px; max-width: 60ch;
 }
 .vc-essay-accent {
-  font-family: 'Spectral', serif; font-style: italic;
-  font-size: clamp(1.2rem, 2.6vw, 1.5rem); line-height: 1.5;
-  color: var(--ink); margin: 26px 0 16px;
+  font-family: 'Inter', sans-serif; font-style: italic; font-weight: 500;
+  font-size: clamp(1.15rem, 2.4vw, 1.4rem); line-height: 1.5;
+  color: var(--ink); margin: 24px 0 16px;
 }
 
 /* --- Circular gallery: full-bleed WebGL carousel of covers, A→Z --- */
 body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
-.vc-essay-gallery-block { padding: 8vh 0 4vh; }
+.vc-essay-gallery-block { padding: 5vh 0 3vh; }
 .vc-essay-gallery-label { text-align: center; margin-bottom: 6px; }
 .vc-essay-gallery {
   width: 100vw; margin-left: calc(50% - 50vw);
@@ -3536,17 +3576,21 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   .vc-essay-gallery { height: 340px; }
 }
 .vc-essay-record {
-  font-family: 'Spectral', serif; font-style: italic;
-  font-size: clamp(1.35rem, 3vw, 1.75rem); line-height: 1.4;
+  font-family: 'Inter', sans-serif; font-style: italic; font-weight: 500;
+  font-size: clamp(1.25rem, 2.7vw, 1.6rem); line-height: 1.4;
   color: var(--ink); margin: 4px 0 18px;
   padding-left: 18px; border-left: 2px solid var(--accent);
 }
 
-/* Closing: full-height finale, photo rises in at the very end */
+/* Closing: full-bleed finale, photo pinned to the bottom-right of the page */
 .vc-essay-closing {
-  position: relative; min-height: 92vh;
+  position: relative; min-height: 88vh;
+  width: 100vw; margin-left: calc(50% - 50vw);
+  /* pull over vc-root's bottom padding so the photo touches the page edge */
+  margin-bottom: -64px;
   display: flex; flex-direction: column; justify-content: center;
-  padding: 10vh 0 0;
+  padding: 8vh 34px 0 max(34px, calc(50vw - 340px));
+  box-sizing: border-box; overflow: hidden;
 }
 .vc-essay-closing-text { position: relative; z-index: 2; }
 .vc-essay-closing h3 {
@@ -3555,18 +3599,19 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   color: var(--accent); margin: 0 0 22px;
 }
 .vc-essay-sig {
-  font-family: 'Spectral', serif; font-weight: 500;
-  font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.18;
+  font-family: 'Inter', sans-serif; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  font-size: clamp(1.6rem, 3.6vw, 2.4rem); line-height: 1.3;
   color: var(--ink); margin: 0 0 26px;
 }
 .vc-essay-sig-final {
-  font-family: 'Spectral', serif; font-style: italic;
-  font-size: clamp(1.2rem, 2.6vw, 1.5rem);
+  font-family: 'Inter', sans-serif; font-style: italic; font-weight: 500;
+  font-size: clamp(1.15rem, 2.4vw, 1.4rem);
   color: var(--ink-soft); margin: 0;
 }
 .vc-about-photo {
-  position: absolute; right: 0; bottom: 0; z-index: 1;
-  height: min(74vh, 600px); width: auto;
+  position: absolute; right: clamp(8px, 4vw, 80px); bottom: 0; z-index: 1;
+  height: min(78vh, 640px); width: auto;
   object-fit: contain; object-position: bottom right;
   pointer-events: none; user-select: none;
   opacity: 0; transform: translateY(64px);
@@ -3575,9 +3620,9 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-essay-closing.is-visible .vc-about-photo { opacity: 1; transform: none; }
 
 @media (max-width: 900px) {
-  .vc-essay-hero { min-height: 56vh; }
-  .vc-essay-block:not(.vc-essay-hero):not(.vc-essay-closing) { padding: 11vh 0; }
-  .vc-essay-closing { min-height: 0; padding-bottom: 0; }
+  .vc-essay-hero { min-height: 62vh; }
+  .vc-essay-block:not(.vc-essay-hero):not(.vc-essay-closing) { padding: 7vh 0; }
+  .vc-essay-closing { min-height: 0; padding: 6vh 20px 0; margin-bottom: -96px; }
   .vc-about-photo {
     position: static; align-self: flex-end;
     height: auto; max-height: 380px; max-width: 92%; margin-top: 30px;
