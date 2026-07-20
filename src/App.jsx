@@ -1686,7 +1686,11 @@ function AboutView({ records, theme }) {
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const blocks = root.querySelectorAll(".vc-essay-block");
+    // Re-run whenever the gallery section (which mounts only after the
+    // records arrive from Supabase) appears, otherwise blocks added after
+    // the first pass are never observed and stay invisible forever.
+    const blocks = root.querySelectorAll(".vc-essay-block:not(.is-visible)");
+    if (!blocks.length) return;
     const io = new IntersectionObserver(
       (entries) => {
         entries.forEach((en) => {
@@ -1700,7 +1704,7 @@ function AboutView({ records, theme }) {
     );
     blocks.forEach((b) => io.observe(b));
     return () => io.disconnect();
-  }, []);
+  }, [galleryItems.length]);
 
   return (
     <main className="vc-main vc-essay" ref={rootRef}>
