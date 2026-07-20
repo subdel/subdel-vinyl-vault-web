@@ -1588,7 +1588,8 @@ function CircularGallery({
     if (!containerRef.current || !items || !items.length) return;
     let engine;
     let mounted = true;
-    const init = async () => {
+    let ro;
+    const boot = async () => {
       try {
         if (document.fonts && document.fonts.load) {
           await document.fonts.load(font);
@@ -1608,9 +1609,28 @@ function CircularGallery({
         autoplaySpeed: prefersReducedMotion() ? 0 : autoplaySpeed,
       });
     };
-    init();
+    // On a hard reload straight into #/about the container can mount before
+    // it has any width (layout still settling). Booting WebGL against a 0×0
+    // canvas leaves it permanently blank, so wait for a real size first.
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      boot();
+    } else {
+      ro = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+            ro.disconnect();
+            ro = null;
+            boot();
+            break;
+          }
+        }
+      });
+      ro.observe(containerRef.current);
+    }
     return () => {
       mounted = false;
+      if (ro) ro.disconnect();
       if (engine) engine.destroy();
     };
   }, [items, bend, textColor, borderRadius, font, scrollSpeed, scrollEase, autoplaySpeed]);
