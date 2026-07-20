@@ -3,6 +3,7 @@ import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic
 import { supabase } from "./supabaseClient";
 import QRCode from "qrcode";
 import { motion, useMotionValue, useSpring } from "motion/react";
+import { Camera, Mesh, Plane, Program, Renderer, Texture, Transform } from "ogl";
 
 const FINISH_OPTIONS = [
   "Standard (opaque)",
@@ -828,7 +829,7 @@ export default function VinylCrate() {
         <InsightsView records={records || []} />
       )}
 
-      {view === "grid" && activeTab === "about" && <AboutView />}
+      {view === "grid" && activeTab === "about" && <AboutView records={records} theme={theme} />}
 
       {view === "grid" && activeTab !== "history" && activeTab !== "insights" && activeTab !== "about" && (
         <GridView
@@ -1203,24 +1204,558 @@ function ClickSpark({
   );
 }
 
-// ================= ABOUT ME =================
-function AboutView() {
+// ================= CIRCULAR GALLERY (WebGL cover carousel, A→Z by artist) =================
+// Adapted from React Bits <CircularGallery />: square planes (record sleeves),
+// full-color textures, right-to-left autoplay, events scoped to the container
+// so page scrolling is never hijacked.
+function galleryLerp(p1, p2, t) {
+  return p1 + (p2 - p1) * t;
+}
+
+function createGalleryTextTexture(gl, text, font, color) {
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  context.font = font;
+  const metrics = context.measureText(text);
+  const sizeMatch = font.match(/(\d+)px/);
+  const fontSize = sizeMatch ? parseInt(sizeMatch[1], 10) : 26;
+  canvas.width = Math.ceil(metrics.width) + 20;
+  canvas.height = Math.ceil(fontSize * 1.2) + 20;
+  context.font = font;
+  context.fillStyle = color;
+  context.textBaseline = "middle";
+  context.textAlign = "center";
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillText(text, canvas.width / 2, canvas.height / 2);
+  const texture = new Texture(gl, { generateMipmaps: false });
+  texture.image = canvas;
+  return { texture, width: canvas.width, height: canvas.height };
+}
+
+class GalleryTitle {
+  constructor({ gl, plane, text, textColor, font }) {
+    this.gl = gl;
+    this.plane = plane;
+    const { texture, width, height } = createGalleryTextTexture(gl, text, font, textColor);
+    const geometry = new Plane(gl);
+    const program = new Program(gl, {
+      vertex: `
+        attribute vec3 position;
+        attribute vec2 uv;
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragment: `
+        precision highp float;
+        uniform sampler2D tMap;
+        varying vec2 vUv;
+        void main() {
+          vec4 color = texture2D(tMap, vUv);
+          if (color.a < 0.1) discard;
+          gl_FragColor = color;
+        }
+      `,
+      uniforms: { tMap: { value: texture } },
+      transparent: true,
+    });
+    this.mesh = new Mesh(gl, { geometry, program });
+    const aspect = width / height;
+    const textHeight = plane.scale.y * 0.11;
+    this.mesh.scale.set(textHeight * aspect, textHeight, 1);
+    this.mesh.position.y = -plane.scale.y * 0.5 - textHeight * 0.5 - 0.28;
+    this.mesh.setParent(plane);
+  }
+}
+
+class GalleryMedia {
+  constructor({ geometry, gl, image, index, length, scene, screen, text, viewport, bend, textColor, borderRadius, font }) {
+    this.extra = 0;
+    this.geometry = geometry;
+    this.gl = gl;
+    this.image = image;
+    this.index = index;
+    this.length = length;
+    this.scene = scene;
+    this.screen = screen;
+    this.text = text;
+    this.viewport = viewport;
+    this.bend = bend;
+    this.textColor = textColor;
+    this.borderRadius = borderRadius;
+    this.font = font;
+    this.createShader();
+    this.createMesh();
+    this.title = new GalleryTitle({ gl, plane: this.plane, text, textColor, font });
+    this.onResize();
+  }
+  createShader() {
+    const texture = new Texture(this.gl, { generateMipmaps: true });
+    this.program = new Program(this.gl, {
+      depthTest: false,
+      depthWrite: false,
+      vertex: `
+        precision highp float;
+        attribute vec3 position;
+        attribute vec2 uv;
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+        uniform float uTime;
+        uniform float uSpeed;
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          vec3 p = position;
+          p.z = (sin(p.x * 4.0 + uTime) * 1.5 + cos(p.y * 2.0 + uTime) * 1.5) * (0.1 + uSpeed * 0.5);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        }
+      `,
+      fragment: `
+        precision highp float;
+        uniform vec2 uImageSizes;
+        uniform vec2 uPlaneSizes;
+        uniform sampler2D tMap;
+        uniform float uBorderRadius;
+        varying vec2 vUv;
+        float roundedBoxSDF(vec2 p, vec2 b, float r) {
+          vec2 d = abs(p) - b;
+          return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0) - r;
+        }
+        void main() {
+          vec2 ratio = vec2(
+            min((uPlaneSizes.x / uPlaneSizes.y) / (uImageSizes.x / uImageSizes.y), 1.0),
+            min((uPlaneSizes.y / uPlaneSizes.x) / (uImageSizes.y / uImageSizes.x), 1.0)
+          );
+          vec2 uv = vec2(
+            vUv.x * ratio.x + (1.0 - ratio.x) * 0.5,
+            vUv.y * ratio.y + (1.0 - ratio.y) * 0.5
+          );
+          vec4 color = texture2D(tMap, uv);
+          float d = roundedBoxSDF(vUv - 0.5, vec2(0.5 - uBorderRadius), uBorderRadius);
+          float alpha = 1.0 - smoothstep(-0.002, 0.002, d);
+          gl_FragColor = vec4(color.rgb, alpha);
+        }
+      `,
+      uniforms: {
+        tMap: { value: texture },
+        uPlaneSizes: { value: [0, 0] },
+        uImageSizes: { value: [0, 0] },
+        uSpeed: { value: 0 },
+        uTime: { value: 100 * Math.random() },
+        uBorderRadius: { value: this.borderRadius },
+      },
+      transparent: true,
+    });
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = this.image;
+    img.onload = () => {
+      texture.image = img;
+      this.program.uniforms.uImageSizes.value = [img.naturalWidth, img.naturalHeight];
+    };
+  }
+  createMesh() {
+    this.plane = new Mesh(this.gl, { geometry: this.geometry, program: this.program });
+    this.plane.setParent(this.scene);
+  }
+  update(scroll, direction) {
+    this.plane.position.x = this.x - scroll.current - this.extra;
+    const x = this.plane.position.x;
+    const H = this.viewport.width / 2;
+    if (this.bend === 0) {
+      this.plane.position.y = 0;
+      this.plane.rotation.z = 0;
+    } else {
+      const B_abs = Math.abs(this.bend);
+      const R = (H * H + B_abs * B_abs) / (2 * B_abs);
+      const effectiveX = Math.min(Math.abs(x), H);
+      const arc = R - Math.sqrt(R * R - effectiveX * effectiveX);
+      if (this.bend > 0) {
+        this.plane.position.y = -arc;
+        this.plane.rotation.z = -Math.sign(x) * Math.asin(effectiveX / R);
+      } else {
+        this.plane.position.y = arc;
+        this.plane.rotation.z = Math.sign(x) * Math.asin(effectiveX / R);
+      }
+    }
+    this.speed = scroll.current - scroll.last;
+    this.program.uniforms.uTime.value += 0.04;
+    this.program.uniforms.uSpeed.value = this.speed;
+
+    const planeOffset = this.plane.scale.x / 2;
+    const viewportOffset = this.viewport.width / 2;
+    this.isBefore = this.plane.position.x + planeOffset < -viewportOffset;
+    this.isAfter = this.plane.position.x - planeOffset > viewportOffset;
+    if (direction === "right" && this.isBefore) {
+      this.extra -= this.widthTotal;
+      this.isBefore = this.isAfter = false;
+    }
+    if (direction === "left" && this.isAfter) {
+      this.extra += this.widthTotal;
+      this.isBefore = this.isAfter = false;
+    }
+  }
+  onResize({ screen, viewport } = {}) {
+    if (screen) this.screen = screen;
+    if (viewport) this.viewport = viewport;
+    // Square planes: same pixel side for width and height — record sleeves.
+    this.scale = this.screen.height / 1500;
+    const sidePx = 950 * this.scale;
+    this.plane.scale.y = (this.viewport.height * sidePx) / this.screen.height;
+    this.plane.scale.x = (this.viewport.width * sidePx) / this.screen.width;
+    this.plane.program.uniforms.uPlaneSizes.value = [this.plane.scale.x, this.plane.scale.y];
+    this.padding = 1.4;
+    this.width = this.plane.scale.x + this.padding;
+    this.widthTotal = this.width * this.length;
+    this.x = this.width * this.index;
+  }
+}
+
+class GalleryEngine {
+  constructor(container, { items, bend, textColor, borderRadius, font, scrollSpeed, scrollEase, autoplaySpeed }) {
+    this.container = container;
+    this.scrollSpeed = scrollSpeed;
+    this.autoplaySpeed = autoplaySpeed;
+    this.scroll = { ease: scrollEase, current: 0, target: 0, last: 0 };
+    this.isDown = false;
+    this.createRenderer();
+    this.createCamera();
+    this.scene = new Transform();
+    this.onResize();
+    this.planeGeometry = new Plane(this.gl, { heightSegments: 50, widthSegments: 100 });
+    this.createMedias(items, bend, textColor, borderRadius, font);
+    this.update = this.update.bind(this);
+    this.raf = window.requestAnimationFrame(this.update);
+    this.addEventListeners();
+  }
+  createRenderer() {
+    this.renderer = new Renderer({ alpha: true, antialias: true, dpr: Math.min(window.devicePixelRatio || 1, 2) });
+    this.gl = this.renderer.gl;
+    this.gl.clearColor(0, 0, 0, 0);
+    this.container.appendChild(this.gl.canvas);
+  }
+  createCamera() {
+    this.camera = new Camera(this.gl);
+    this.camera.fov = 45;
+    this.camera.position.z = 20;
+  }
+  createMedias(items, bend, textColor, borderRadius, font) {
+    this.mediasImages = items.concat(items);
+    this.medias = this.mediasImages.map(
+      (data, index) =>
+        new GalleryMedia({
+          geometry: this.planeGeometry,
+          gl: this.gl,
+          image: data.image,
+          index,
+          length: this.mediasImages.length,
+          scene: this.scene,
+          screen: this.screen,
+          text: data.text,
+          viewport: this.viewport,
+          bend,
+          textColor,
+          borderRadius,
+          font,
+        })
+    );
+  }
+  onTouchDown(e) {
+    this.isDown = true;
+    this.scroll.position = this.scroll.current;
+    this.start = e.touches ? e.touches[0].clientX : e.clientX;
+  }
+  onTouchMove(e) {
+    if (!this.isDown) return;
+    const x = e.touches ? e.touches[0].clientX : e.clientX;
+    this.scroll.target = this.scroll.position + (this.start - x) * (this.scrollSpeed * 0.025);
+  }
+  onTouchUp() {
+    this.isDown = false;
+  }
+  onKeyDown(e) {
+    if (e.key === "ArrowRight") {
+      e.preventDefault();
+      this.scroll.target += this.scrollSpeed * 3;
+    } else if (e.key === "ArrowLeft") {
+      e.preventDefault();
+      this.scroll.target -= this.scrollSpeed * 3;
+    }
+  }
+  onResize() {
+    this.screen = { width: this.container.clientWidth, height: this.container.clientHeight };
+    this.renderer.setSize(this.screen.width, this.screen.height);
+    this.camera.perspective({ aspect: this.screen.width / this.screen.height });
+    const fov = (this.camera.fov * Math.PI) / 180;
+    const height = 2 * Math.tan(fov / 2) * this.camera.position.z;
+    this.viewport = { width: height * this.camera.aspect, height };
+    if (this.medias) {
+      this.medias.forEach((media) => media.onResize({ screen: this.screen, viewport: this.viewport }));
+    }
+  }
+  update() {
+    // Autoplay: constant right-to-left drift, paused while the user drags.
+    if (!this.isDown && this.autoplaySpeed) {
+      this.scroll.target += this.autoplaySpeed;
+    }
+    this.scroll.current = galleryLerp(this.scroll.current, this.scroll.target, this.scroll.ease);
+    const direction = this.scroll.current > this.scroll.last ? "right" : "left";
+    if (this.medias) this.medias.forEach((media) => media.update(this.scroll, direction));
+    this.renderer.render({ scene: this.scene, camera: this.camera });
+    this.scroll.last = this.scroll.current;
+    this.raf = window.requestAnimationFrame(this.update);
+  }
+  addEventListeners() {
+    this.boundResize = this.onResize.bind(this);
+    this.boundDown = this.onTouchDown.bind(this);
+    this.boundMove = this.onTouchMove.bind(this);
+    this.boundUp = this.onTouchUp.bind(this);
+    this.boundKey = this.onKeyDown.bind(this);
+    window.addEventListener("resize", this.boundResize);
+    // Drag starts on the gallery itself; move/up on window so the drag
+    // survives leaving the container. No wheel listeners — the page keeps
+    // its normal scroll behaviour.
+    this.container.addEventListener("mousedown", this.boundDown);
+    window.addEventListener("mousemove", this.boundMove);
+    window.addEventListener("mouseup", this.boundUp);
+    this.container.addEventListener("touchstart", this.boundDown, { passive: true });
+    this.container.addEventListener("touchmove", this.boundMove, { passive: true });
+    this.container.addEventListener("touchend", this.boundUp);
+    this.container.addEventListener("keydown", this.boundKey);
+  }
+  destroy() {
+    window.cancelAnimationFrame(this.raf);
+    window.removeEventListener("resize", this.boundResize);
+    this.container.removeEventListener("mousedown", this.boundDown);
+    window.removeEventListener("mousemove", this.boundMove);
+    window.removeEventListener("mouseup", this.boundUp);
+    this.container.removeEventListener("touchstart", this.boundDown);
+    this.container.removeEventListener("touchmove", this.boundMove);
+    this.container.removeEventListener("touchend", this.boundUp);
+    this.container.removeEventListener("keydown", this.boundKey);
+    if (this.gl && this.gl.canvas.parentNode) {
+      this.gl.canvas.parentNode.removeChild(this.gl.canvas);
+    }
+  }
+}
+
+function CircularGallery({
+  items,
+  bend = 2,
+  textColor = "#c3cadd",
+  borderRadius = 0.04,
+  font = '500 26px "IBM Plex Mono"',
+  scrollSpeed = 2,
+  scrollEase = 0.06,
+  autoplaySpeed = 0.03,
+}) {
+  const containerRef = useRef(null);
+  useEffect(() => {
+    if (!containerRef.current || !items || !items.length) return;
+    let engine;
+    let mounted = true;
+    const init = async () => {
+      try {
+        if (document.fonts && document.fonts.load) {
+          await document.fonts.load(font);
+        }
+      } catch {
+        /* fall back to whatever the browser provides */
+      }
+      if (!mounted || !containerRef.current) return;
+      engine = new GalleryEngine(containerRef.current, {
+        items,
+        bend,
+        textColor,
+        borderRadius,
+        font,
+        scrollSpeed,
+        scrollEase,
+        autoplaySpeed: prefersReducedMotion() ? 0 : autoplaySpeed,
+      });
+    };
+    init();
+    return () => {
+      mounted = false;
+      if (engine) engine.destroy();
+    };
+  }, [items, bend, textColor, borderRadius, font, scrollSpeed, scrollEase, autoplaySpeed]);
   return (
-    <main className="vc-main">
-      <section className="vc-about">
-        <div className="vc-about-text">
-          <p className="vc-about-eyebrow">About me</p>
-          <h2>The collector behind the vault</h2>
-          {/* BIO-START: цей текст — тимчасова заглушка, її замінить справжня історія */}
-          <p>
-            Every record in this vault has a story — where it was found, why it mattered,
-            what was playing the first time the needle dropped. This page is where those
-            stories meet the person collecting them.
+    <div
+      className="vc-circular-gallery"
+      ref={containerRef}
+      tabIndex={0}
+      role="region"
+      aria-label="Record covers gallery, A to Z by artist. Drag or use arrow keys to browse."
+    />
+  );
+}
+
+// ================= ABOUT ME =================
+function AboutView({ records, theme }) {
+  const rootRef = useRef(null);
+
+  // All covers, alphabetically by artist (then title): Aerosmith → Lady Gaga → …
+  const galleryItems = useMemo(() => {
+    if (!records) return [];
+    return [...records]
+      .filter((r) => r.coverUrl)
+      .sort(
+        (a, b) =>
+          (a.artist || "").localeCompare(b.artist || "", undefined, { sensitivity: "base" }) ||
+          (a.title || "").localeCompare(b.title || "", undefined, { sensitivity: "base" })
+      )
+      .map((r) => ({ image: r.coverUrl, text: `${r.artist} — ${r.title}` }));
+  }, [records]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const blocks = root.querySelectorAll(".vc-essay-block");
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((en) => {
+          if (en.isIntersecting) {
+            en.target.classList.add("is-visible");
+            io.unobserve(en.target);
+          }
+        });
+      },
+      { threshold: 0.2 }
+    );
+    blocks.forEach((b) => io.observe(b));
+    return () => io.disconnect();
+  }, []);
+
+  return (
+    <main className="vc-main vc-essay" ref={rootRef}>
+      {/* HERO */}
+      <section className="vc-essay-block vc-essay-hero">
+        <p className="vc-essay-eyebrow">About</p>
+        <h2>Through Sound.</h2>
+        <p className="vc-essay-sub">A personal archive told through vinyl.</p>
+      </section>
+
+      {/* 01 — WHY MUSIC */}
+      <section className="vc-essay-block">
+        <p className="vc-essay-eyebrow">01 — Why music</p>
+        <h3>
+          Each record in this collection is a mirror.
+          <br />
+          In it, I see myself.
+        </h3>
+        <p>
+          Music has always been more than something I listen to. It is how I experience
+          emotions, remember people, and relive moments. Some days it brings calm, others
+          it brings energy. Sometimes it helps me slow down, sometimes it reminds me where
+          I've been.
+        </p>
+        <p className="vc-essay-accent">For me, music is how life sounds.</p>
+      </section>
+
+      {/* 02 — WHY VINYL */}
+      <section className="vc-essay-block">
+        <p className="vc-essay-eyebrow">02 — Why vinyl</p>
+        <h3>Vinyl is different.</h3>
+        <p>
+          Not because it sounds "better", but because it asks you to slow down. Holding a
+          record in your hands feels like holding an artifact. Every sleeve, every
+          pressing, every small imperfection becomes part of the experience.
+        </p>
+        <p className="vc-essay-accent">
+          Streaming gives access to music.
+          <br />
+          Vinyl gives me a relationship with it.
+        </p>
+        <p>
+          I love owning an album, listening to it from beginning to end, exactly as the
+          artist intended. Sometimes collecting is about discovering something rare. Most
+          of the time, it's about preserving something meaningful.
+        </p>
+      </section>
+
+      {/* 03 — WHERE IT BEGAN */}
+      <section className="vc-essay-block">
+        <p className="vc-essay-eyebrow">03 — Where it began</p>
+        <h3>Everything started in 2023.</h3>
+        <p>A colleague gave me my first record as a gift:</p>
+        <p className="vc-essay-record">Sade — Diamond Life</p>
+        <p>
+          I didn't know it then, but that single record became the beginning of something
+          much bigger.
+        </p>
+        <p className="vc-essay-accent">
+          Not simply a collection.
+          <br />
+          A timeline.
+        </p>
+      </section>
+
+      {/* 04 — WHAT I COLLECT */}
+      <section className="vc-essay-block">
+        <p className="vc-essay-eyebrow">04 — What I collect</p>
+        <h3>Every album here has earned its place.</h3>
+        <p>I don't collect records for the sake of collecting.</p>
+        <p>
+          Some remind me of a specific period of my life. Some belong to artists who have
+          shaped me. Some are rare pressings I searched for over months. Others simply
+          make me feel something every time the needle drops.
+        </p>
+        <p className="vc-essay-accent">
+          This collection is built on emotion before rarity.
+          <br />
+          Meaning before quantity.
+        </p>
+      </section>
+
+      {/* 05 — THE ARCHIVE */}
+      <section className="vc-essay-block">
+        <p className="vc-essay-eyebrow">05 — The archive</p>
+        <h3>This website began as a way to catalogue my collection.</h3>
+        <p>Over time it became something else.</p>
+        <p>
+          A place to preserve memories. A place to share music that has shaped me. A place
+          I hope I'll come back to years from now.
+        </p>
+        <p className="vc-essay-accent">
+          To see my life...
+          <br />
+          through sound.
+        </p>
+      </section>
+
+      {/* GALLERY — the archive drifting by, A to Z */}
+      {galleryItems.length > 0 && (
+        <section className="vc-essay-block vc-essay-gallery-block">
+          <p className="vc-essay-eyebrow vc-essay-gallery-label">The archive — A to Z</p>
+          <div className="vc-essay-gallery">
+            <CircularGallery
+              items={galleryItems}
+              bend={2}
+              textColor={theme === "dark" ? "#c3cadd" : "#33415c"}
+              borderRadius={0.04}
+              font={'500 26px "IBM Plex Mono"'}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* CLOSING */}
+      <section className="vc-essay-block vc-essay-closing">
+        <div className="vc-essay-closing-text">
+          <h3>Sub Del</h3>
+          <p className="vc-essay-sig">
+            Attention to detail.
+            <br />
+            Curiosity.
+            <br />
+            Nostalgia.
           </p>
-          <p>
-            The full story is being written right now. Check back soon.
-          </p>
-          {/* BIO-END */}
+          <p className="vc-essay-sig-final">Pressed into vinyl.</p>
         </div>
         <img
           className="vc-about-photo"
@@ -2941,43 +3476,115 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
 }
 @media (max-width: 700px) { .vc-tilt-caption { display: none; } }
 
-/* --- About me --- */
-.vc-about {
-  position: relative;
-  background: #161e33;
-  border: 1px solid #2a3452;
-  border-radius: var(--radius);
-  min-height: 520px;
-  overflow: hidden;
+/* --- About: scroll essay --- */
+.vc-essay { max-width: 680px; margin: 0 auto; }
+
+/* Scroll reveal: hidden until IntersectionObserver adds .is-visible */
+.vc-essay-block {
+  opacity: 0; transform: translateY(34px);
+  transition: opacity 0.9s cubic-bezier(0.22, 1, 0.36, 1), transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.vc-about-text {
-  position: relative; z-index: 2;
-  max-width: 58%;
-  padding: 52px 56px;
-  color: #e8ebf5;
+.vc-essay-block.is-visible { opacity: 1; transform: none; }
+
+.vc-essay-hero {
+  min-height: 72vh;
+  display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
 }
-.vc-about-eyebrow {
-  font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  color: #8fa3d9; margin: 0 0 10px;
+.vc-essay-hero h2 {
+  font-family: 'Spectral', serif; font-weight: 500; letter-spacing: -0.01em;
+  font-size: clamp(3.2rem, 9vw, 6rem); line-height: 1.02;
+  margin: 0 0 20px; color: var(--ink);
 }
-.vc-about-text h2 {
+.vc-essay-sub { font-size: 1.02rem; color: var(--ink-soft); margin: 0; }
+
+.vc-essay-eyebrow {
+  font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 18px;
+}
+
+.vc-essay-block:not(.vc-essay-hero):not(.vc-essay-closing) { padding: 15vh 0; }
+.vc-essay-block h3 {
   font-family: 'Spectral', serif; font-weight: 500;
-  font-size: 2.1rem; line-height: 1.15; margin: 0 0 18px; color: #f4f6fb;
+  font-size: clamp(1.8rem, 4.4vw, 2.7rem); line-height: 1.16;
+  margin: 0 0 26px; color: var(--ink);
 }
-.vc-about-text p:not(.vc-about-eyebrow) {
-  font-size: 0.95rem; line-height: 1.65; color: #c3cadd; margin: 0 0 14px;
+.vc-essay-block p:not(.vc-essay-eyebrow):not(.vc-essay-accent):not(.vc-essay-record):not(.vc-essay-sig):not(.vc-essay-sig-final) {
+  font-size: 1rem; line-height: 1.78; color: var(--ink-soft); margin: 0 0 16px; max-width: 60ch;
+}
+.vc-essay-accent {
+  font-family: 'Spectral', serif; font-style: italic;
+  font-size: clamp(1.2rem, 2.6vw, 1.5rem); line-height: 1.5;
+  color: var(--ink); margin: 26px 0 16px;
+}
+
+/* --- Circular gallery: full-bleed WebGL carousel of covers, A→Z --- */
+body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
+.vc-essay-gallery-block { padding: 8vh 0 4vh; }
+.vc-essay-gallery-label { text-align: center; margin-bottom: 6px; }
+.vc-essay-gallery {
+  width: 100vw; margin-left: calc(50% - 50vw);
+  height: 480px; position: relative;
+}
+.vc-circular-gallery {
+  width: 100%; height: 100%;
+  overflow: hidden; cursor: grab; touch-action: pan-y;
+}
+.vc-circular-gallery:active { cursor: grabbing; }
+.vc-circular-gallery:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 900px) {
+  .vc-essay-gallery { height: 340px; }
+}
+.vc-essay-record {
+  font-family: 'Spectral', serif; font-style: italic;
+  font-size: clamp(1.35rem, 3vw, 1.75rem); line-height: 1.4;
+  color: var(--ink); margin: 4px 0 18px;
+  padding-left: 18px; border-left: 2px solid var(--accent);
+}
+
+/* Closing: full-height finale, photo rises in at the very end */
+.vc-essay-closing {
+  position: relative; min-height: 92vh;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 10vh 0 0;
+}
+.vc-essay-closing-text { position: relative; z-index: 2; }
+.vc-essay-closing h3 {
+  font-family: 'IBM Plex Mono', monospace; font-weight: 500;
+  font-size: 0.78rem; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 22px;
+}
+.vc-essay-sig {
+  font-family: 'Spectral', serif; font-weight: 500;
+  font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.18;
+  color: var(--ink); margin: 0 0 26px;
+}
+.vc-essay-sig-final {
+  font-family: 'Spectral', serif; font-style: italic;
+  font-size: clamp(1.2rem, 2.6vw, 1.5rem);
+  color: var(--ink-soft); margin: 0;
 }
 .vc-about-photo {
   position: absolute; right: 0; bottom: 0; z-index: 1;
-  height: 88%; max-height: 480px; width: auto;
+  height: min(74vh, 600px); width: auto;
   object-fit: contain; object-position: bottom right;
   pointer-events: none; user-select: none;
+  opacity: 0; transform: translateY(64px);
+  transition: opacity 1.15s cubic-bezier(0.22, 1, 0.36, 1) 0.25s, transform 1.15s cubic-bezier(0.22, 1, 0.36, 1) 0.25s;
 }
-@media (max-width: 860px) {
-  .vc-about { min-height: 0; display: flex; flex-direction: column; }
-  .vc-about-text { max-width: 100%; padding: 32px 26px 8px; }
-  .vc-about-photo { position: static; align-self: flex-end; height: auto; max-height: 340px; max-width: 88%; }
+.vc-essay-closing.is-visible .vc-about-photo { opacity: 1; transform: none; }
+
+@media (max-width: 900px) {
+  .vc-essay-hero { min-height: 56vh; }
+  .vc-essay-block:not(.vc-essay-hero):not(.vc-essay-closing) { padding: 11vh 0; }
+  .vc-essay-closing { min-height: 0; padding-bottom: 0; }
+  .vc-about-photo {
+    position: static; align-self: flex-end;
+    height: auto; max-height: 380px; max-width: 92%; margin-top: 30px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vc-essay-block, .vc-about-photo { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 
 .vc-fab {
