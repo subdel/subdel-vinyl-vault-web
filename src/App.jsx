@@ -335,12 +335,18 @@ function geniusLink(artist, track) {
 
 
 // ================= APP =================
+// Tab deep links: URL segment ↔ internal tab id. URLs use what the visitor
+// sees in the nav (Vault, Collection…), which differs from the internal ids
+// for historical reasons ("collection" = Vault tab, "history" = Collection tab).
+const HASH_TO_TAB = { vault: "collection", wishlist: "wishlist", collection: "history", insights: "insights", about: "about" };
+const TAB_TO_HASH = { collection: "vault", wishlist: "wishlist", history: "collection", insights: "insights", about: "about" };
+
 export default function VinylCrate() {
   const [records, setRecords] = useState(null); // null = loading
   const [view, setView] = useState("grid"); // grid | detail | lyrics
   const [selectedId, setSelectedId] = useState(null);
 
-  // ---- hash routing: #/record/<id> and #/record/<id>/lyrics ----
+  // ---- hash routing: #/record/<id>, #/record/<id>/lyrics and tab links ----
   const gridScrollRef = useRef(0);
   useEffect(() => {
     function applyHash() {
@@ -350,12 +356,22 @@ export default function VinylCrate() {
         setView(m[2] ? "lyrics" : "detail");
         // record pages always start from the top
         requestAnimationFrame(() => window.scrollTo(0, 0));
-      } else {
+        return;
+      }
+      const t = window.location.hash.match(/^#\/(vault|wishlist|collection|insights|about)$/);
+      if (t) {
         setSelectedId(null);
         setView("grid");
-        // returning to the grid: put the user back where they were
+        setActiveTab(HASH_TO_TAB[t[1]]);
+        // fresh shared links start at the top (ref is 0); returning from a
+        // record restores the previous scroll position
         requestAnimationFrame(() => window.scrollTo(0, gridScrollRef.current));
+        return;
       }
+      setSelectedId(null);
+      setView("grid");
+      // returning to the grid: put the user back where they were
+      requestAnimationFrame(() => window.scrollTo(0, gridScrollRef.current));
     }
     applyHash();
     window.addEventListener("hashchange", applyHash);
@@ -453,6 +469,10 @@ export default function VinylCrate() {
     setGenreFilter(null);
     setSizeFilter(null);
     setQuery("");
+    // keep the URL shareable: #/vault, #/wishlist, #/collection, #/insights, #/about
+    if (TAB_TO_HASH[tab]) {
+      history.replaceState(null, "", `#/${TAB_TO_HASH[tab]}`);
+    }
   }
 
   const scopedRecords = useMemo(() => {
@@ -1088,28 +1108,18 @@ function ClickSpark({
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const parent = canvas.parentElement;
-    if (!parent) return;
 
-    let resizeTimeout;
+    // Viewport-sized bitmap: coordinates always match the cursor exactly, no
+    // matter how tall the page content is or how it changes between tabs.
     const resizeCanvas = () => {
-      const { width, height } = parent.getBoundingClientRect();
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
     };
-    const handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(resizeCanvas, 100);
-    };
-    const ro = new ResizeObserver(handleResize);
-    ro.observe(parent);
     resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
 
     return () => {
-      ro.disconnect();
-      clearTimeout(resizeTimeout);
+      window.removeEventListener("resize", resizeCanvas);
     };
   }, []);
 
@@ -1166,35 +1176,34 @@ function ClickSpark({
     return () => cancelAnimationFrame(animationId);
   }, [sparkColor, sparkSize, sparkRadius, duration, easeFunc, extraScale]);
 
-  const handleClick = (e) => {
-    const canvas = canvasRef.current;
-    if (!canvas || prefersReducedMotion()) return;
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+  const sparkCountRef = useRef(sparkCount);
+  sparkCountRef.current = sparkCount;
 
-    const now = performance.now();
-    const newSparks = Array.from({ length: sparkCount }, (_, i) => ({
-      x,
-      y,
-      angle: (2 * Math.PI * i) / sparkCount,
-      startTime: now,
-    }));
-    sparksRef.current.push(...newSparks);
-  };
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (prefersReducedMotion()) return;
+      const now = performance.now();
+      const count = sparkCountRef.current;
+      const newSparks = Array.from({ length: count }, (_, i) => ({
+        x: e.clientX,
+        y: e.clientY,
+        angle: (2 * Math.PI * i) / count,
+        startTime: now,
+      }));
+      sparksRef.current.push(...newSparks);
+    };
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
+  }, []);
 
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%" }} onClick={handleClick}>
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
       <canvas
         ref={canvasRef}
         style={{
-          width: "100%",
-          height: "100%",
-          display: "block",
           userSelect: "none",
-          position: "absolute",
-          top: 0,
-          left: 0,
+          position: "fixed",
+          inset: 0,
           pointerEvents: "none",
           zIndex: 90,
         }}
@@ -1306,6 +1315,11 @@ class GalleryMedia {
     this.createMesh();
     this.title = new GalleryTitle({ gl, plane: this.plane, text, textColor, font });
     this.onResize();
+    // Fill the viewport from the very first frame: planes in the far half of
+    // the doubled strip start wrapped to the left of the origin, so the space
+    // left of "A" is occupied by the tail of the alphabet instead of being
+    // empty until the first drag.
+    if (this.x > this.widthTotal / 2) this.extra = this.widthTotal;
   }
   createShader() {
     const texture = new Texture(this.gl, { generateMipmaps: true });
@@ -3622,7 +3636,9 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   color: var(--ink-soft); margin: 0;
 }
 .vc-about-photo {
-  position: absolute; right: clamp(8px, 4vw, 80px); bottom: 0; z-index: 1;
+  /* bleed past the right edge: the third sleeve is mostly clipped away,
+     like in the reference frame */
+  position: absolute; right: clamp(-110px, -6vw, -56px); bottom: 0; z-index: 1;
   height: min(78vh, 640px); width: auto;
   object-fit: contain; object-position: bottom right;
   pointer-events: none; user-select: none;
@@ -3637,7 +3653,8 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   .vc-essay-closing { min-height: 0; padding: 6vh 20px 0; margin-bottom: -96px; }
   .vc-about-photo {
     position: static; align-self: flex-end;
-    height: auto; max-height: 380px; max-width: 92%; margin-top: 30px;
+    height: auto; max-height: 380px; max-width: 92%;
+    margin-top: 30px; margin-right: -44px; /* same edge bleed on mobile */
   }
 }
 @media (prefers-reduced-motion: reduce) {
