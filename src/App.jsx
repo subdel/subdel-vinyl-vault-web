@@ -348,6 +348,16 @@ export default function VinylCrate() {
 
   // ---- hash routing: #/record/<id>, #/record/<id>/lyrics and tab links ----
   const gridScrollRef = useRef(0);
+  // Chrome restores the previous scroll position on hard reload of a hash
+  // URL before our React tree has mounted the target view. For deep-linked
+  // tabs that means the browser jumps into the middle of a page whose
+  // components (like the WebGL carousel) haven't rendered yet — we want
+  // full control instead.
+  useEffect(() => {
+    if ("scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+  }, []);
   useEffect(() => {
     function applyHash() {
       const m = window.location.hash.match(/^#\/record\/([^/]+)(\/lyrics)?$/);
@@ -363,14 +373,15 @@ export default function VinylCrate() {
         setSelectedId(null);
         setView("grid");
         setActiveTab(HASH_TO_TAB[t[1]]);
-        // fresh shared links start at the top (ref is 0); returning from a
-        // record restores the previous scroll position
-        requestAnimationFrame(() => window.scrollTo(0, gridScrollRef.current));
+        // shared tab links always land at the top so the essay reads in order
+        // and the carousel gets to mount within the viewport
+        window.scrollTo(0, 0);
+        requestAnimationFrame(() => window.scrollTo(0, 0));
         return;
       }
       setSelectedId(null);
       setView("grid");
-      // returning to the grid: put the user back where they were
+      // returning to the grid from a record: restore the previous position
       requestAnimationFrame(() => window.scrollTo(0, gridScrollRef.current));
     }
     applyHash();
