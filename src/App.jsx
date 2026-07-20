@@ -1236,7 +1236,11 @@ class GalleryTitle {
   constructor({ gl, plane, text, textColor, font }) {
     this.gl = gl;
     this.plane = plane;
-    const { texture, width, height } = createGalleryTextTexture(gl, text, font, textColor);
+    // Long pressing names would render wider than the cover and collide with
+    // neighbours — trim them before rasterizing.
+    const MAX_CHARS = 34;
+    const label = text.length > MAX_CHARS ? `${text.slice(0, MAX_CHARS - 1).trimEnd()}…` : text;
+    const { texture, width, height } = createGalleryTextTexture(gl, label, font, textColor);
     const geometry = new Plane(gl);
     const program = new Program(gl, {
       vertex: `
@@ -1267,8 +1271,16 @@ class GalleryTitle {
     const aspect = width / height;
     // Child of the plane: scale/position are fractions of the parent, so this
     // stays correct no matter when the plane itself gets resized.
-    const textHeight = 0.12;
-    this.mesh.scale.set(textHeight * aspect, textHeight, 1);
+    // Hard cap: the label may never be wider than the cover itself (1.0 of the
+    // parent), otherwise adjacent labels collide. Shrink the type to fit.
+    const MAX_WIDTH = 0.92;
+    let textHeight = 0.085;
+    let textWidth = textHeight * aspect;
+    if (textWidth > MAX_WIDTH) {
+      textWidth = MAX_WIDTH;
+      textHeight = textWidth / aspect;
+    }
+    this.mesh.scale.set(textWidth, textHeight, 1);
     this.mesh.position.y = -0.5 - textHeight * 0.5 - 0.05;
     this.mesh.setParent(plane);
   }
