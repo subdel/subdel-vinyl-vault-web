@@ -419,6 +419,8 @@ export default function VinylCrate() {
   const [finishFilter, setFinishFilter] = useState(null);
   const [tagFilter, setTagFilter] = useState(null);
   const [genreFilter, setGenreFilter] = useState(null);
+  const [artistFilter, setArtistFilter] = useState(null);
+  const [yearFilter, setYearFilter] = useState(null);
   const [sizeFilter, setSizeFilter] = useState(null);
   const [quantityFilter, setQuantityFilter] = useState(null);
   const [saveError, setSaveError] = useState(false);
@@ -486,6 +488,8 @@ export default function VinylCrate() {
     setFinishFilter(null);
     setTagFilter(null);
     setGenreFilter(null);
+    setArtistFilter(null);
+    setYearFilter(null);
     setSizeFilter(null);
     setQuantityFilter(null);
     setQuery("");
@@ -493,6 +497,18 @@ export default function VinylCrate() {
     if (TAB_TO_HASH[tab]) {
       history.replaceState(null, "", `#/${TAB_TO_HASH[tab]}`);
     }
+  }
+
+  function openInsightFilter(type, value) {
+    switchTab("collection");
+    if (type === "color") setColorFilter(value);
+    if (type === "genre") setGenreFilter(value);
+    if (type === "artist") setArtistFilter(value);
+    if (type === "year") setYearFilter(String(value));
+    if (type === "finish") setFinishFilter(value);
+    if (type === "size") setSizeFilter(value);
+    if (type === "quantity") setQuantityFilter(Number(value));
+    requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
   const ownedRecords = useMemo(() => (records ? records.filter(isOwnedRecord) : []), [records]);
@@ -543,6 +559,18 @@ export default function VinylCrate() {
     return Array.from(set);
   }, [scopedRecords]);
 
+  const distinctArtists = useMemo(() => {
+    if (!scopedRecords) return [];
+    return Array.from(new Set(scopedRecords.map((record) => record.artist).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b));
+  }, [scopedRecords]);
+
+  const distinctYears = useMemo(() => {
+    if (!scopedRecords) return [];
+    return Array.from(new Set(scopedRecords.map((record) => String(record.year || "")).filter(Boolean)))
+      .sort((a, b) => Number(b) - Number(a) || b.localeCompare(a));
+  }, [scopedRecords]);
+
   const distinctSizes = useMemo(() => {
     if (!scopedRecords) return [];
     const set = new Set();
@@ -584,6 +612,12 @@ export default function VinylCrate() {
     if (genreFilter) {
       list = list.filter((r) => (r.genre || "").split(",").map((g) => g.trim()).includes(genreFilter));
     }
+    if (artistFilter) {
+      list = list.filter((r) => r.artist === artistFilter);
+    }
+    if (yearFilter) {
+      list = list.filter((r) => String(r.year || "") === String(yearFilter));
+    }
     if (sizeFilter) {
       list = list.filter((r) => (r.vinylSize || "12\"") === sizeFilter);
     }
@@ -601,7 +635,7 @@ export default function VinylCrate() {
       }
       return String(av).localeCompare(String(bv)) * dir;
     });
-  }, [scopedRecords, debouncedQuery, colorFilter, finishFilter, tagFilter, genreFilter, sizeFilter, quantityFilter, sortField, sortDir]);
+  }, [scopedRecords, debouncedQuery, colorFilter, finishFilter, tagFilter, genreFilter, artistFilter, yearFilter, sizeFilter, quantityFilter, sortField, sortDir]);
 
   const selected = records ? records.find((r) => r.id === selectedId) : null;
 
@@ -877,7 +911,7 @@ export default function VinylCrate() {
       )}
 
       {view === "grid" && activeTab === "insights" && (
-        <InsightsView records={ownedRecords} />
+        <InsightsView records={ownedRecords} canExport={!!session} onDrillDown={openInsightFilter} />
       )}
 
       {view === "grid" && activeTab === "about" && <AboutView records={records === null ? null : ownedRecords} theme={theme} />}
@@ -909,6 +943,12 @@ export default function VinylCrate() {
           distinctGenres={distinctGenres}
           genreFilter={genreFilter}
           setGenreFilter={setGenreFilter}
+          distinctArtists={distinctArtists}
+          artistFilter={artistFilter}
+          setArtistFilter={setArtistFilter}
+          distinctYears={distinctYears}
+          yearFilter={yearFilter}
+          setYearFilter={setYearFilter}
           distinctSizes={distinctSizes}
           sizeFilter={sizeFilter}
           setSizeFilter={setSizeFilter}
@@ -953,7 +993,7 @@ export default function VinylCrate() {
 
 // ================= GRID VIEW =================
 // ================= HISTORY (4-column grid of everything ever added) =================
-function InsightsView({ records }) {
+function InsightsView({ records, canExport, onDrillDown }) {
   const owned = useMemo(() => records.filter((r) => (r.status || "owned") === "owned"), [records]);
 
   const stats = useMemo(() => {
@@ -973,9 +1013,10 @@ function InsightsView({ records }) {
       years: count((r) => [r.year]).slice(0, 8),
       genres: count((r) => (r.genre || "").split(",").map((g) => g.trim())).slice(0, 8),
       artists: count((r) => [r.artist]).slice(0, 8),
+      artistTotal: new Set(owned.map((record) => record.artist).filter(Boolean)).size,
       sizes: count((r) => [r.vinylSize || '12"']),
       finishes: count((r) => [r.finish]).slice(0, 8),
-      quantities: count((r) => [`${getVinylQuantity(r)}× vinyl`]),
+      quantities: count((r) => [getVinylQuantity(r)]),
       discTotal: owned.reduce((total, record) => total + getVinylQuantity(record), 0),
     };
   }, [owned]);
@@ -1003,24 +1044,33 @@ function InsightsView({ records }) {
     URL.revokeObjectURL(a.href);
   }
 
-  function StatBlock({ title, entries, dots }) {
+  function StatBlock({ title, entries, dots, filterType, formatLabel = (label) => label }) {
     if (!entries.length) return null;
     const max = entries[0][1];
     return (
       <div className="vc-insight-block">
         <h3>{title}</h3>
-        {entries.map(([label, n]) => (
-          <div key={label} className="vc-insight-row">
-            <span className="vc-insight-label">
-              {dots && stats.colorHexes[label] && <span className="vc-chip-dot" style={{ background: stats.colorHexes[label] }} />}
-              {label}
-            </span>
-            <span className="vc-insight-bar-track">
-              <span className="vc-insight-bar" style={{ width: `${(n / max) * 100}%` }} />
-            </span>
-            <span className="vc-insight-n">{n}</span>
-          </div>
-        ))}
+        {entries.map(([label, n]) => {
+          const displayLabel = formatLabel(label);
+          return (
+            <button
+              type="button"
+              key={label}
+              className="vc-insight-row"
+              onClick={() => onDrillDown(filterType, label)}
+              aria-label={`View ${displayLabel} records in Vault`}
+            >
+              <span className="vc-insight-label">
+                {dots && stats.colorHexes[label] && <span className="vc-chip-dot" style={{ background: stats.colorHexes[label] }} />}
+                {displayLabel}
+              </span>
+              <span className="vc-insight-bar-track">
+                <span className="vc-insight-bar" style={{ width: `${(n / max) * 100}%` }} />
+              </span>
+              <span className="vc-insight-n">{n}</span>
+            </button>
+          );
+        })}
       </div>
     );
   }
@@ -1031,23 +1081,30 @@ function InsightsView({ records }) {
         <div className="vc-insight-totals">
           <div className="vc-insight-total"><strong>{owned.length}</strong><span>pressings</span></div>
           <div className="vc-insight-total"><strong>{stats.discTotal}</strong><span>discs total</span></div>
-          <div className="vc-insight-total"><strong>{stats.artists.length}</strong><span>artists (top shown)</span></div>
+          <div className="vc-insight-total"><strong>{stats.artistTotal}</strong><span>artists</span></div>
         </div>
-        <button className="vc-btn vc-btn-outline" onClick={exportCsv}>
-          <FileDown size={15} /> Export CSV
-        </button>
+        {canExport && (
+          <button className="vc-btn vc-btn-outline" onClick={exportCsv}>
+            <FileDown size={15} /> Export CSV
+          </button>
+        )}
       </div>
       {owned.length === 0 ? (
         <div className="vc-empty"><p>Add some records and your collection insights will appear here.</p></div>
       ) : (
         <div className="vc-insights-grid">
-          <StatBlock title="Colors" entries={stats.colors} dots />
-          <StatBlock title="Genres" entries={stats.genres} />
-          <StatBlock title="Top artists" entries={stats.artists} />
-          <StatBlock title="Years" entries={stats.years} />
-          <StatBlock title="Finishes" entries={stats.finishes} />
-          <StatBlock title="Sizes" entries={stats.sizes} />
-          <StatBlock title="Vinyls per release" entries={stats.quantities} />
+          <StatBlock title="Colors" entries={stats.colors} dots filterType="color" />
+          <StatBlock title="Genres" entries={stats.genres} filterType="genre" />
+          <StatBlock title="Top artists" entries={stats.artists} filterType="artist" />
+          <StatBlock title="Years" entries={stats.years} filterType="year" />
+          <StatBlock title="Finishes" entries={stats.finishes} filterType="finish" />
+          <StatBlock title="Sizes" entries={stats.sizes} filterType="size" />
+          <StatBlock
+            title="Vinyls per release"
+            entries={stats.quantities}
+            filterType="quantity"
+            formatLabel={(quantity) => `${quantity}× vinyl`}
+          />
         </div>
       )}
     </main>
@@ -2158,6 +2215,12 @@ function GridView({
   distinctGenres,
   genreFilter,
   setGenreFilter,
+  distinctArtists,
+  artistFilter,
+  setArtistFilter,
+  distinctYears,
+  yearFilter,
+  setYearFilter,
   distinctSizes,
   sizeFilter,
   setSizeFilter,
@@ -2172,13 +2235,15 @@ function GridView({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const reduceMotion = useReducedMotion();
   const dragEnabled = canEdit && sortField === "sortOrder";
-  const activeFilterCount = [colorFilter, finishFilter, tagFilter, genreFilter, sizeFilter, quantityFilter].filter(Boolean).length;
+  const activeFilterCount = [colorFilter, finishFilter, tagFilter, genreFilter, artistFilter, yearFilter, sizeFilter, quantityFilter].filter(Boolean).length;
 
   function clearAllFilters() {
     setColorFilter(null);
     setFinishFilter(null);
     setTagFilter(null);
     setGenreFilter(null);
+    setArtistFilter(null);
+    setYearFilter(null);
     setSizeFilter(null);
     setQuantityFilter(null);
   }
@@ -2350,6 +2415,52 @@ function GridView({
                         onClick={() => setGenreFilter(genreFilter === g ? null : g)}
                       >
                         {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {distinctArtists.length > 0 && (
+                <div className="vc-chip-group">
+                  <span className="vc-chip-group-label">Artist</span>
+                  <div className="vc-chips">
+                    <button
+                      className={`vc-chip ${artistFilter === null ? "is-active" : ""}`}
+                      onClick={() => setArtistFilter(null)}
+                    >
+                      All
+                    </button>
+                    {distinctArtists.map((artist) => (
+                      <button
+                        key={artist}
+                        className={`vc-chip ${artistFilter === artist ? "is-active" : ""}`}
+                        onClick={() => setArtistFilter(artistFilter === artist ? null : artist)}
+                      >
+                        {artist}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {distinctYears.length > 0 && (
+                <div className="vc-chip-group">
+                  <span className="vc-chip-group-label">Year</span>
+                  <div className="vc-chips">
+                    <button
+                      className={`vc-chip ${yearFilter === null ? "is-active" : ""}`}
+                      onClick={() => setYearFilter(null)}
+                    >
+                      All
+                    </button>
+                    {distinctYears.map((year) => (
+                      <button
+                        key={year}
+                        className={`vc-chip ${yearFilter === year ? "is-active" : ""}`}
+                        onClick={() => setYearFilter(yearFilter === year ? null : year)}
+                      >
+                        {year}
                       </button>
                     ))}
                   </div>
@@ -4268,7 +4379,16 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-insights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
 .vc-insight-block { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
 .vc-insight-block h3 { margin: 0 0 14px; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 500; }
-.vc-insight-row { display: grid; grid-template-columns: minmax(90px, 40%) 1fr auto; align-items: center; gap: 10px; margin-bottom: 8px; }
+.vc-insight-row {
+  width: calc(100% + 10px); display: grid; grid-template-columns: minmax(90px, 40%) 1fr auto;
+  align-items: center; gap: 10px; margin: 0 -5px 4px; padding: 4px 5px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+.vc-insight-row:hover { background: var(--accent-tint); color: var(--accent); }
+.vc-insight-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vc-insight-row:hover .vc-insight-bar { opacity: 1; }
 .vc-insight-label { font-size: 0.8rem; display: flex; align-items: center; gap: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vc-insight-bar-track { height: 7px; background: var(--paper); border-radius: 99px; overflow: hidden; }
 .vc-insight-bar { display: block; height: 100%; background: var(--accent); border-radius: 99px; opacity: 0.75; }
