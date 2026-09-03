@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon, QrCode, GripVertical, ChevronLeft, ChevronRight, ChevronDown, SlidersHorizontal, BarChart3, FileDown } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { VINYL_QUANTITIES, getVinylQuantity, resizeExtraDiscsForQuantity } from "./vinylQuantity";
+import { getColorName } from "./colorName";
 import QRCode from "qrcode";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring } from "motion/react";
 import { Camera, Mesh, Plane, Program, Renderer, Texture, Transform } from "ogl";
@@ -2985,6 +2986,10 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
+  function setVinylColor(hex) {
+    setForm((f) => ({ ...f, colorHex: hex, colorLabel: getColorName(hex) }));
+  }
+
   async function handleCoverFile(e) {
     const file = e.target.files && e.target.files[0];
     e.target.value = "";
@@ -3032,6 +3037,15 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
     setForm((f) => ({
       ...f,
       extraDiscs: (f.extraDiscs || []).map((d, i) => (i === idx ? { ...d, [key]: value } : d)),
+    }));
+  }
+
+  function updateExtraDiscColor(idx, hex) {
+    setForm((f) => ({
+      ...f,
+      extraDiscs: (f.extraDiscs || []).map((disc, i) => (
+        i === idx ? { ...disc, colorHex: hex, colorLabel: getColorName(hex) } : disc
+      )),
     }));
   }
 
@@ -3217,7 +3231,8 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
                 <input
                   type="color"
                   value={form.colorHex}
-                  onChange={(e) => set("colorHex", e.target.value)}
+                  onChange={(e) => setVinylColor(e.target.value)}
+                  aria-label="Choose vinyl color"
                 />
                 <input
                   className="vc-color-label"
@@ -3226,6 +3241,7 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
                   placeholder="Clear with red splatter"
                 />
               </div>
+              <p className="vc-hint">The name updates automatically from the picker or RGB values. You can still edit it.</p>
               <div className="vc-presets">
                 {COLOR_PRESETS.map((p) => (
                   <button
@@ -3328,7 +3344,8 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
                       <input
                         type="color"
                         value={disc.colorHex}
-                        onChange={(e) => updateExtraDisc(idx, "colorHex", e.target.value)}
+                        onChange={(e) => updateExtraDiscColor(idx, e.target.value)}
+                        aria-label={`Choose color for vinyl ${idx + 2}`}
                       />
                       <input
                         className="vc-color-label"
