@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon, QrCode, GripVertical, ChevronLeft, ChevronRight, ChevronDown, SlidersHorizontal, BarChart3, FileDown } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import { VINYL_QUANTITIES, getVinylQuantity, resizeExtraDiscsForQuantity } from "./vinylQuantity";
 import QRCode from "qrcode";
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring } from "motion/react";
 import { Camera, Mesh, Plane, Program, Renderer, Texture, Transform } from "ogl";
@@ -418,6 +419,7 @@ export default function VinylCrate() {
   const [tagFilter, setTagFilter] = useState(null);
   const [genreFilter, setGenreFilter] = useState(null);
   const [sizeFilter, setSizeFilter] = useState(null);
+  const [quantityFilter, setQuantityFilter] = useState(null);
   const [saveError, setSaveError] = useState(false);
   const [activeTab, setActiveTab] = useState("collection"); // collection | wishlist
   const [session, setSession] = useState(null);
@@ -484,6 +486,7 @@ export default function VinylCrate() {
     setTagFilter(null);
     setGenreFilter(null);
     setSizeFilter(null);
+    setQuantityFilter(null);
     setQuery("");
     // keep the URL shareable: #/vault, #/wishlist, #/collection, #/insights, #/about
     if (TAB_TO_HASH[tab]) {
@@ -497,6 +500,10 @@ export default function VinylCrate() {
 
   const collectionCount = ownedRecords.length;
   const wishlistCount = wishlistRecords.length;
+  const scopedVinylCount = useMemo(
+    () => (scopedRecords ? scopedRecords.reduce((total, record) => total + getVinylQuantity(record), 0) : 0),
+    [scopedRecords]
+  );
 
   const entryNumbers = useMemo(() => {
     if (!scopedRecords) return {};
@@ -579,6 +586,9 @@ export default function VinylCrate() {
     if (sizeFilter) {
       list = list.filter((r) => (r.vinylSize || "12\"") === sizeFilter);
     }
+    if (quantityFilter) {
+      list = list.filter((r) => getVinylQuantity(r) === quantityFilter);
+    }
     const dir = sortDir === "asc" ? 1 : -1;
     return [...list].sort((a, b) => {
       let av = a[sortField] ?? "";
@@ -590,7 +600,7 @@ export default function VinylCrate() {
       }
       return String(av).localeCompare(String(bv)) * dir;
     });
-  }, [scopedRecords, debouncedQuery, colorFilter, finishFilter, tagFilter, genreFilter, sizeFilter, sortField, sortDir]);
+  }, [scopedRecords, debouncedQuery, colorFilter, finishFilter, tagFilter, genreFilter, sizeFilter, quantityFilter, sortField, sortDir]);
 
   const selected = records ? records.find((r) => r.id === selectedId) : null;
 
@@ -767,7 +777,9 @@ export default function VinylCrate() {
           </div>
           <div className="vc-header-actions">
             {view === "grid" && activeTab !== "history" && activeTab !== "insights" && activeTab !== "about" && scopedRecords && scopedRecords.length > 0 && (
-              <span className="vc-tally">{scopedRecords.length} {activeTab === "wishlist" ? "wanted" : "pressing"}{scopedRecords.length === 1 ? "" : "s"}</span>
+              <span className="vc-tally">
+                {scopedRecords.length} {activeTab === "wishlist" ? "wanted" : `pressing${scopedRecords.length === 1 ? "" : "s"} · ${scopedVinylCount} vinyl${scopedVinylCount === 1 ? "" : "s"}`}
+              </span>
             )}
             {view === "grid" && activeTab !== "history" && activeTab !== "insights" && activeTab !== "about" && (
               session ? (
@@ -899,6 +911,8 @@ export default function VinylCrate() {
           distinctSizes={distinctSizes}
           sizeFilter={sizeFilter}
           setSizeFilter={setSizeFilter}
+          quantityFilter={quantityFilter}
+          setQuantityFilter={setQuantityFilter}
           onOpen={openRecord}
           onAdd={openAdd}
           saveError={saveError}
@@ -960,7 +974,8 @@ function InsightsView({ records }) {
       artists: count((r) => [r.artist]).slice(0, 8),
       sizes: count((r) => [r.vinylSize || '12"']),
       finishes: count((r) => [r.finish]).slice(0, 8),
-      discTotal: owned.reduce((t, r) => t + 1 + (r.extraDiscs ? r.extraDiscs.length : 0), 0),
+      quantities: count((r) => [`${getVinylQuantity(r)}× vinyl`]),
+      discTotal: owned.reduce((total, record) => total + getVinylQuantity(record), 0),
     };
   }, [owned]);
 
@@ -971,7 +986,7 @@ function InsightsView({ records }) {
     const rows = ordered.map((r, i) => [
       i + 1, r.artist, r.title, r.year, r.version, r.catalogNo, r.label, r.genre,
       r.colorLabel, r.finish, r.vinylSize || '12"',
-      1 + (r.extraDiscs ? r.extraDiscs.length : 0),
+      getVinylQuantity(r),
       (r.specialTags || []).join("; "),
       r.status || "owned",
       new Date(r.addedAt).toISOString().slice(0, 10),
@@ -1031,6 +1046,7 @@ function InsightsView({ records }) {
           <StatBlock title="Years" entries={stats.years} />
           <StatBlock title="Finishes" entries={stats.finishes} />
           <StatBlock title="Sizes" entries={stats.sizes} />
+          <StatBlock title="Vinyls per release" entries={stats.quantities} />
         </div>
       )}
     </main>
@@ -1880,7 +1896,7 @@ function HistoryView({ loading, records, onOpen }) {
               <TiltedCover
                 overlay={
                   <>
-                    <span className="vc-tilt-chip">{r.artist}</span>
+                    <span className="vc-tilt-chip">{r.artist} · {getVinylQuantity(r)}× vinyl</span>
                     {isRecentlyAdded(r) && <span className="vc-history-badge vc-history-badge-new">New</span>}
                   </>
                 }
@@ -2144,6 +2160,8 @@ function GridView({
   distinctSizes,
   sizeFilter,
   setSizeFilter,
+  quantityFilter,
+  setQuantityFilter,
   onOpen,
   onAdd,
   saveError,
@@ -2153,7 +2171,7 @@ function GridView({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const reduceMotion = useReducedMotion();
   const dragEnabled = canEdit && sortField === "sortOrder";
-  const activeFilterCount = [colorFilter, finishFilter, tagFilter, genreFilter, sizeFilter].filter(Boolean).length;
+  const activeFilterCount = [colorFilter, finishFilter, tagFilter, genreFilter, sizeFilter, quantityFilter].filter(Boolean).length;
 
   function clearAllFilters() {
     setColorFilter(null);
@@ -2161,6 +2179,7 @@ function GridView({
     setTagFilter(null);
     setGenreFilter(null);
     setSizeFilter(null);
+    setQuantityFilter(null);
   }
 
   return (
@@ -2359,6 +2378,28 @@ function GridView({
                   </div>
                 </div>
               )}
+
+              <div className="vc-chip-group">
+                <span className="vc-chip-group-label">Vinyls per release</span>
+                <div className="vc-chips">
+                  <button
+                    className={`vc-chip ${quantityFilter === null ? "is-active" : ""}`}
+                    onClick={() => setQuantityFilter(null)}
+                  >
+                    All
+                  </button>
+                  {VINYL_QUANTITIES.map((quantity) => (
+                    <button
+                      key={quantity}
+                      className={`vc-chip ${quantityFilter === quantity ? "is-active" : ""}`}
+                      onClick={() => setQuantityFilter(quantityFilter === quantity ? null : quantity)}
+                    >
+                      <Disc3 size={14} strokeWidth={1.8} />
+                      {quantity}× vinyl
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </motion.section>
         )}
@@ -2492,7 +2533,7 @@ function GridView({
                 <span>{r.artist}</span>
                 <span className="vc-mono">
                   {r.year || "—"}
-                  {r.extraDiscs && r.extraDiscs.length > 0 ? ` · ${r.extraDiscs.length + 1}× vinyl` : ""}
+                  {` · ${getVinylQuantity(r)}× vinyl`}
                 </span>
               </span>
             </button>
@@ -2826,12 +2867,10 @@ function DetailView({ record, entryNo, canEdit, onBack, onEdit, onDelete, onLyri
               <SizeIcon vinylSize={record.vinylSize || "12\""} size={15} />
               {record.vinylSize || "12\""}
             </span>
-            {record.extraDiscs && record.extraDiscs.length > 0 && (
-              <>
-                <span className="vc-dot-sep">·</span>
-                <span className="vc-color-tag">{record.extraDiscs.length + 1}× vinyl set</span>
-              </>
-            )}
+            <span className="vc-dot-sep">·</span>
+            <span className="vc-color-tag">
+              {getVinylQuantity(record)}× vinyl{getVinylQuantity(record) > 1 ? " set" : ""}
+            </span>
           </div>
 
           {(record.label || record.genre) && (
@@ -2978,13 +3017,10 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
     }
   }
 
-  function addExtraDisc() {
+  function setVinylQuantity(quantity) {
     setForm((f) => ({
       ...f,
-      extraDiscs: [
-        ...(f.extraDiscs || []),
-        { colorLabel: "Black", colorHex: "#161616", finish: "Standard (opaque)", discImageUrl: "", discImageX: 50, discImageY: 50, discImageZoom: 100 },
-      ],
+      extraDiscs: resizeExtraDiscsForQuantity(f, quantity),
     }));
   }
 
@@ -3057,6 +3093,18 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           <label className="vc-field">
             <span>Catalog #</span>
             <input value={form.catalogNo} onChange={(e) => set("catalogNo", e.target.value)} placeholder="e.g. label pressing code" />
+          </label>
+          <label className="vc-field">
+            <span>Vinyls in package</span>
+            <select
+              value={Math.min(3, getVinylQuantity(form))}
+              onChange={(e) => setVinylQuantity(Number(e.target.value))}
+            >
+              {VINYL_QUANTITIES.map((quantity) => (
+                <option key={quantity} value={quantity}>{quantity}× vinyl</option>
+              ))}
+            </select>
+            <span className="vc-hint">Used in vinyl totals and collection filters.</span>
           </label>
 
           <div className="vc-field vc-field-wide">
@@ -3262,14 +3310,9 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           </div>
 
           <div className="vc-field vc-field-wide">
-            <span className="vc-field-label-row">
-              Additional vinyls in this set (optional — for multi-disc releases)
-              <button type="button" className="vc-btn vc-btn-ghost vc-btn-sm" onClick={addExtraDisc}>
-                <Plus size={13} /> Add another vinyl
-              </button>
-            </span>
+            <span>Vinyl details (optional — for multi-disc releases)</span>
             {(form.extraDiscs || []).length === 0 && (
-              <p className="vc-hint">Leave empty for a standard single-disc release.</p>
+              <p className="vc-hint">Choose 2× or 3× above to add separate color, finish, or image details for each vinyl.</p>
             )}
             {(form.extraDiscs || []).map((disc, idx) => (
               <div key={idx} className="vc-extra-disc-card">
