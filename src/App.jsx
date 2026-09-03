@@ -3110,15 +3110,18 @@ function FormModal({ form, setForm, editing, onClose, onSubmit }) {
           </label>
           <label className="vc-field">
             <span>Vinyls in package</span>
-            <select
-              value={Math.min(3, getVinylQuantity(form))}
-              onChange={(e) => setVinylQuantity(Number(e.target.value))}
-            >
-              {VINYL_QUANTITIES.map((quantity) => (
-                <option key={quantity} value={quantity}>{quantity}× vinyl</option>
-              ))}
-            </select>
-            <span className="vc-hint">Used in vinyl totals and collection filters.</span>
+            <span className="vc-package-select-wrap">
+              <select
+                className="vc-package-select"
+                value={Math.min(3, getVinylQuantity(form))}
+                onChange={(e) => setVinylQuantity(Number(e.target.value))}
+              >
+                {VINYL_QUANTITIES.map((quantity) => (
+                  <option key={quantity} value={quantity}>{quantity}× vinyl</option>
+                ))}
+              </select>
+              <ChevronDown className="vc-package-select-arrow" size={17} aria-hidden="true" />
+            </span>
           </label>
 
           <div className="vc-field vc-field-wide">
@@ -4137,6 +4140,14 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   padding: 9px 11px; font-size: 0.87rem; font-family: 'Inter', sans-serif;
 }
 .vc-field input:focus, .vc-field textarea:focus, .vc-field select:focus { outline: none; border-color: var(--accent); }
+.vc-package-select-wrap { position: relative; display: block; }
+.vc-field .vc-package-select {
+  width: 100%; appearance: none; -webkit-appearance: none; padding-right: 52px;
+}
+.vc-package-select-arrow {
+  position: absolute; right: 18px; top: 50%; transform: translateY(-50%);
+  color: var(--ink-soft); pointer-events: none;
+}
 .vc-field-wide { grid-column: 1 / -1; }
 .vc-field-color { grid-column: 1 / -1; }
 .vc-cover-row { display: flex; gap: 10px; }
