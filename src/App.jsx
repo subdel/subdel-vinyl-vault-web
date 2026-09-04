@@ -1954,7 +1954,7 @@ function HistoryView({ loading, records, onOpen }) {
               <TiltedCover
                 overlay={
                   <>
-                    <span className="vc-tilt-chip">{r.title}</span>
+                    <span className="vc-tilt-chip">{r.artist}</span>
                     {isRecentlyAdded(r) && <span className="vc-history-badge vc-history-badge-new">New</span>}
                   </>
                 }
