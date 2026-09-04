@@ -275,10 +275,10 @@ async function generateCollectionImage(records, sortBy = "added") {
   function paint(ctx, useOnlySafeImages) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
-    ctx.fillStyle = "#0b0b0d";
+    ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = "#f5f3ee";
+    ctx.fillStyle = "#ffffff";
     const titleSize = 78;
     ctx.font = `600 ${titleSize}px Inter, sans-serif`;
     ctx.textBaseline = "alphabetic";
@@ -287,7 +287,7 @@ async function generateCollectionImage(records, sortBy = "added") {
     if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
 
     ctx.font = `500 26px 'IBM Plex Mono', 'Courier New', monospace`;
-    ctx.fillStyle = "#9a968a";
+    ctx.fillStyle = "#a3a3a3";
     ctx.fillText(`${ordered.length} pressing${ordered.length === 1 ? "" : "s"}`, padding, 172);
 
     ordered.forEach((r, i) => {
@@ -443,7 +443,7 @@ export default function VinylCrate() {
 
   useEffect(() => {
     localStorage.setItem("vv-theme", theme);
-    const bg = theme === "dark" ? "#16151a" : "#f5f3ee";
+    const bg = theme === "dark" ? "#000000" : "#ffffff";
     document.documentElement.style.background = bg;
     document.body.style.background = bg;
     document.documentElement.style.colorScheme = theme;
@@ -799,7 +799,7 @@ export default function VinylCrate() {
   return (
     <div className="vc-root" data-theme={theme}>
       <style>{CSS}</style>
-      <ClickSpark sparkColor={theme === "dark" ? "#ffffff" : "#33415c"}>
+      <ClickSpark sparkColor={theme === "dark" ? "#ffffff" : "#000000"}>
 
       <div className="vc-nav-glass">
         <header className="vc-header">
@@ -1668,7 +1668,7 @@ class GalleryEngine {
 function CircularGallery({
   items,
   bend = 2,
-  textColor = "#c3cadd",
+  textColor = "#ffffff",
   borderRadius = 0.04,
   font = '500 26px "IBM Plex Mono"',
   scrollSpeed = 2,
@@ -1896,7 +1896,7 @@ function AboutView({ records, theme }) {
             <CircularGallery
               items={galleryItems}
               bend={0}
-              textColor={theme === "dark" ? "#c3cadd" : "#33415c"}
+              textColor={theme === "dark" ? "#ffffff" : "#000000"}
               borderRadius={0.04}
               font={'500 26px "IBM Plex Mono"'}
             />
@@ -1984,7 +1984,7 @@ function QRCodeButton() {
       const url = await QRCode.toDataURL(link, {
         width: 480,
         margin: 2,
-        color: { dark: "#201e1a", light: "#f5f3ee" },
+        color: { dark: "#000000", light: "#ffffff" },
       });
       setDataUrl(url);
     } catch (e) {
@@ -3612,20 +3612,21 @@ const CSS = `
 html, body, #root { margin: 0; padding: 0; min-height: 100%; }
 
 .vc-root {
-  --ink: #201e1a;
-  --ink-soft: #6b6558;
-  --paper: #f5f3ee;
-  --panel: #ffffff;
+  --ink: #000000;
+  --ink-soft: #666666;
+  --paper: #ffffff;
+  --panel: #f6f6f6;
   --panel-2: #ffffff;
-  --line: #ddd7c8;
-  --accent: #33415c;
-  --accent-tint: #33415c14;
-  --rust: #93463a;
+  --line: #d8d8d8;
+  --track: #e5e5e5;
+  --accent: #000000;
+  --accent-tint: #0000000f;
+  --rust: #404040;
   --radius: 8px;
-  --glass: rgba(245, 243, 238, 0.68);
-  --glass-border: rgba(221, 215, 200, 0.7);
-  --glass-highlight: rgba(255, 255, 255, 0.65);
-  --badge-bg: rgba(245, 243, 238, 0.9);
+  --glass: rgba(255, 255, 255, 0.68);
+  --glass-border: rgba(0, 0, 0, 0.16);
+  --glass-highlight: rgba(255, 255, 255, 0.72);
+  --badge-bg: rgba(255, 255, 255, 0.9);
   font-family: 'Inter', sans-serif;
   background: var(--paper);
   color: var(--ink);
@@ -3635,19 +3636,20 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
   transition: background 0.2s ease, color 0.2s ease;
 }
 .vc-root[data-theme="dark"] {
-  --ink: #f0ede4;
-  --ink-soft: #a29c8c;
-  --paper: #16151a;
-  --panel: #201f26;
-  --panel-2: #26252d;
-  --line: #38363f;
-  --accent: #7c9cd6;
-  --accent-tint: #7c9cd626;
-  --rust: #d98a78;
-  --glass: rgba(22, 21, 26, 0.55);
-  --glass-border: rgba(56, 54, 63, 0.7);
+  --ink: #ffffff;
+  --ink-soft: #a3a3a3;
+  --paper: #000000;
+  --panel: #0a0a0a;
+  --panel-2: #0a0a0a;
+  --line: #2a2a2a;
+  --track: #1c1c1c;
+  --accent: #ffffff;
+  --accent-tint: #ffffff14;
+  --rust: #b8b8b8;
+  --glass: rgba(0, 0, 0, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.16);
   --glass-highlight: rgba(255, 255, 255, 0.07);
-  --badge-bg: rgba(32, 31, 38, 0.88);
+  --badge-bg: rgba(10, 10, 10, 0.88);
 }
 .vc-root * { box-sizing: border-box; }
 .vc-mono { font-family: 'IBM Plex Mono', monospace; font-size: 0.82em; color: var(--ink-soft); }
@@ -3960,7 +3962,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   align-items: center;
   gap: 6px;
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--paper);
   color: var(--ink);
   padding: 9px 16px;
   border-radius: var(--radius);
@@ -3977,8 +3979,8 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 }
 .vc-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .vc-btn:disabled:hover { border-color: var(--line); color: var(--ink); }
-.vc-btn-primary { background: var(--accent); color: #fbfaf7; border-color: var(--accent); font-weight: 600; }
-.vc-btn-primary:hover { background: #405070; color: #fff; }
+.vc-btn-primary { background: var(--accent); color: var(--paper); border-color: var(--accent); font-weight: 600; }
+.vc-btn-primary:hover { background: var(--paper); color: var(--accent); }
 .vc-btn-outline { background: transparent; }
 .vc-btn-ghost { background: transparent; border-color: transparent; padding: 8px 4px; color: var(--ink-soft); }
 .vc-btn-ghost:hover { color: var(--accent); background: transparent; }
@@ -4008,7 +4010,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   min-height: 36px; padding: 8px 12px; white-space: nowrap;
   transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
-.vc-filter-toggle.is-active { color: var(--accent); border-color: var(--accent); background: var(--accent-tint); }
+.vc-filter-toggle.is-active { color: var(--paper); border-color: var(--accent); background: var(--accent); }
 .vc-filter-chevron { transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
 .vc-filter-toggle[aria-expanded="true"] .vc-filter-chevron { transform: rotate(180deg); }
 .vc-filter-count {
@@ -4045,7 +4047,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   border-radius: 5px; padding: 6px 12px; font-size: 0.74rem; cursor: pointer;
   text-transform: uppercase; letter-spacing: 0.03em;
 }
-.vc-chip.is-active { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+.vc-chip.is-active { border-color: var(--accent); color: var(--paper); background: var(--accent); }
 .vc-chip-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; border: 1px solid #0002; }
 
 .vc-warning { background: color-mix(in srgb, var(--rust) 14%, var(--paper)); border: 1px solid var(--rust); color: var(--rust); padding: 10px 14px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 16px; }
@@ -4116,7 +4118,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-sleeve-highlight {
   position: absolute; top: 8px; right: 8px; z-index: 3;
   font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.05em; text-transform: uppercase;
-  background: var(--accent); color: #fbfaf7; padding: 3px 7px; border-radius: 3px;
+  background: var(--accent); color: var(--paper); padding: 3px 7px; border-radius: 3px;
   box-shadow: 0 2px 6px -2px #00000050;
 }
 .vc-stage-highlight { top: 12px; right: 12px; font-size: 0.66rem; padding: 4px 9px; }
@@ -4231,7 +4233,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-track-link:hover { text-decoration: underline; }
 
 .vc-overlay {
-  position: fixed; inset: 0; background: #14131688; backdrop-filter: blur(8px) saturate(140%);
+  position: fixed; inset: 0; background: #00000099; backdrop-filter: blur(8px) saturate(140%);
   -webkit-backdrop-filter: blur(8px) saturate(140%);
   display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 70;
   animation: vc-fade 0.15s ease;
@@ -4330,8 +4332,8 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-finish-option span { font-size: 0.65rem; text-align: center; line-height: 1.25; }
 .vc-finish-option:hover { border-color: var(--accent); color: var(--accent); }
 .vc-finish-option:hover svg { color: var(--accent); }
-.vc-finish-option.is-active { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); }
-.vc-finish-option.is-active svg { color: var(--accent); }
+.vc-finish-option.is-active { border-color: var(--accent); background: var(--accent); color: var(--paper); }
+.vc-finish-option.is-active svg { color: var(--paper); }
 .vc-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; align-items: center; }
 .vc-remember { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--ink-soft); cursor: pointer; user-select: none; }
 .vc-remember input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
@@ -4366,10 +4368,10 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-sleeve-new {
   position: absolute; bottom: 8px; left: 8px; z-index: 3;
   font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase;
-  background: var(--accent); color: #fbfaf7; padding: 3px 7px; border-radius: 3px;
+  background: var(--accent); color: var(--paper); padding: 3px 7px; border-radius: 3px;
   box-shadow: 0 2px 6px -2px #00000050;
 }
-.vc-history-badge-new { left: auto; right: 8px; background: var(--accent); color: #fbfaf7; }
+.vc-history-badge-new { left: auto; right: 8px; background: var(--accent); color: var(--paper); }
 
 /* ---------- insights ---------- */
 .vc-insights-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 26px; }
@@ -4390,7 +4392,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-insight-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .vc-insight-row:hover .vc-insight-bar { opacity: 1; }
 .vc-insight-label { font-size: 0.8rem; display: flex; align-items: center; gap: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.vc-insight-bar-track { height: 7px; background: var(--paper); border-radius: 99px; overflow: hidden; }
+.vc-insight-bar-track { height: 7px; background: var(--track); border-radius: 99px; overflow: hidden; }
 .vc-insight-bar { display: block; height: 100%; background: var(--accent); border-radius: 99px; opacity: 0.75; }
 .vc-insight-n { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--ink-soft); min-width: 2ch; text-align: right; }
 
