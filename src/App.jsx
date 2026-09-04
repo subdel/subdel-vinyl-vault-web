@@ -1954,7 +1954,7 @@ function HistoryView({ loading, records, onOpen }) {
               <TiltedCover
                 overlay={
                   <>
-                    <span className="vc-tilt-chip">{r.artist} · {getVinylQuantity(r)}× vinyl</span>
+                    <span className="vc-tilt-chip">{r.title}</span>
                     {isRecentlyAdded(r) && <span className="vc-history-badge vc-history-badge-new">New</span>}
                   </>
                 }
@@ -3947,7 +3947,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 }
 .vc-fab:hover { transform: translateY(-2px); border-color: var(--accent); color: var(--accent); }
 .vc-fab:active { transform: translateY(0) scale(0.94); }
-.vc-fab-secondary { bottom: 96px; width: 46px; height: 46px; }
+.vc-fab-secondary { bottom: 96px; }
 .vc-share-modal {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius);
   width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto; padding: 24px 26px;
