@@ -250,15 +250,140 @@ function loadImageEl(src) {
   });
 }
 
+const COVER_COLOR_GROUPS = {
+  red: 0,
+  orange: 1,
+  yellow: 2,
+  green: 3,
+  cyan: 4,
+  blue: 5,
+  purple: 6,
+  pink: 7,
+  brown: 8,
+  beige: 9,
+  white: 10,
+  gray: 11,
+  black: 12,
+};
+
+function coverRgbToHsl(r, g, b) {
+  const red = r / 255;
+  const green = g / 255;
+  const blue = b / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  const lightness = (max + min) / 2;
+
+  if (delta === 0) return { hue: 0, saturation: 0, lightness };
+
+  let hue;
+  if (max === red) hue = ((green - blue) / delta) % 6;
+  else if (max === green) hue = (blue - red) / delta + 2;
+  else hue = (red - green) / delta + 4;
+
+  hue *= 60;
+  if (hue < 0) hue += 360;
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  return { hue, saturation, lightness };
+}
+
+function coverColorGroup(hue, saturation, lightness) {
+  if (lightness <= 0.1) return "black";
+  if (lightness >= 0.9 && saturation < 0.18) return "white";
+  if (saturation < 0.16) return "gray";
+  if (hue >= 18 && hue < 48 && lightness < 0.36) return "brown";
+  if (hue >= 35 && hue < 65 && lightness >= 0.68 && saturation < 0.5) return "beige";
+  if (hue < 15 || hue >= 345) return "red";
+  if (hue < 45) return "orange";
+  if (hue < 70) return "yellow";
+  if (hue < 165) return "green";
+  if (hue < 205) return "cyan";
+  if (hue < 260) return "blue";
+  if (hue < 300) return "purple";
+  if (hue < 345) return "pink";
+  return "red";
+}
+
+function dominantCoverColor(image) {
+  if (!image) return null;
+
+  try {
+    const sampleSize = 36;
+    const canvas = document.createElement("canvas");
+    canvas.width = sampleSize;
+    canvas.height = sampleSize;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+
+    const side = Math.min(image.naturalWidth || image.width, image.naturalHeight || image.height);
+    const sourceX = ((image.naturalWidth || image.width) - side) / 2;
+    const sourceY = ((image.naturalHeight || image.height) - side) / 2;
+    ctx.drawImage(image, sourceX, sourceY, side, side, 0, 0, sampleSize, sampleSize);
+    const pixels = ctx.getImageData(0, 0, sampleSize, sampleSize).data;
+    const buckets = new Map();
+
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] < 128) continue;
+      const color = coverRgbToHsl(pixels[i], pixels[i + 1], pixels[i + 2]);
+      const group = coverColorGroup(color.hue, color.saturation, color.lightness);
+      const isNeutral = group === "black" || group === "gray" || group === "white";
+      const weight = isNeutral ? 1 : 0.9 + color.saturation * 1.4;
+      const bucket = buckets.get(group) || { group, score: 0, hue: 0, saturation: 0, lightness: 0 };
+      bucket.score += weight;
+      bucket.hue += color.hue * weight;
+      bucket.saturation += color.saturation * weight;
+      bucket.lightness += color.lightness * weight;
+      buckets.set(group, bucket);
+    }
+
+    const dominant = [...buckets.values()].sort((a, b) => b.score - a.score)[0];
+    if (!dominant) return null;
+    return {
+      group: dominant.group,
+      rank: COVER_COLOR_GROUPS[dominant.group],
+      hue: dominant.hue / dominant.score,
+      saturation: dominant.saturation / dominant.score,
+      lightness: dominant.lightness / dominant.score,
+    };
+  } catch {
+    // A remote cover without canvas permission cannot be sampled safely.
+    return null;
+  }
+}
+
 async function generateCollectionImage(records, sortBy = "added") {
   // This export represents records that are actually owned. Keep the guard
   // here as well as in the Collection view so wishlist items can never leak
   // into a shared image if this function is reused elsewhere.
-  const ownedRecords = records.filter(isOwnedRecord);
-  const ordered =
-    sortBy === "color"
-      ? [...ownedRecords].sort((a, b) => (a.colorLabel || "").localeCompare(b.colorLabel || "") || a.addedAt - b.addedAt)
-      : [...ownedRecords].sort((a, b) => a.addedAt - b.addedAt);
+  const ownedRecords = records.filter(isOwnedRecord).sort((a, b) => a.addedAt - b.addedAt);
+  const loadedSources = await Promise.all(ownedRecords.map((record) => resolveRecordCoverSrc(record)));
+  const loadedImages = await Promise.all(loadedSources.map((src) => loadImageEl(src)));
+  const items = ownedRecords.map((record, index) => ({
+    record,
+    source: loadedSources[index],
+    image: loadedImages[index],
+    originalIndex: index,
+    coverColor: sortBy === "coverColor" ? dominantCoverColor(loadedImages[index]) : null,
+  }));
+
+  if (sortBy === "coverColor") {
+    items.sort((a, b) => {
+      if (!a.coverColor && !b.coverColor) return a.originalIndex - b.originalIndex;
+      if (!a.coverColor) return 1;
+      if (!b.coverColor) return -1;
+      return (
+        a.coverColor.rank - b.coverColor.rank ||
+        b.coverColor.lightness - a.coverColor.lightness ||
+        b.coverColor.saturation - a.coverColor.saturation ||
+        a.originalIndex - b.originalIndex
+      );
+    });
+  }
+
+  const ordered = items.map((item) => item.record);
+  const sources = items.map((item) => item.source);
+  const images = items.map((item) => item.image);
   const TARGET_WIDTH = 1920;
   const padding = 90;
   const gap = 22;
@@ -268,9 +393,6 @@ async function generateCollectionImage(records, sortBy = "added") {
   const rows = Math.max(1, Math.ceil(ordered.length / cols));
   const width = TARGET_WIDTH;
   const height = titleHeight + padding + rows * cell + (rows - 1) * gap + padding;
-
-  const sources = await Promise.all(ordered.map((r) => resolveRecordCoverSrc(r)));
-  const images = await Promise.all(sources.map((src) => loadImageEl(src)));
 
   function paint(ctx, useOnlySafeImages) {
     ctx.imageSmoothingEnabled = true;
@@ -2159,11 +2281,11 @@ function ShareCollectionButton({ records }) {
                   Added order
                 </button>
                 <button
-                  className={`vc-chip ${sortBy === "color" ? "is-active" : ""}`}
-                  onClick={() => handleSortChange("color")}
+                  className={`vc-chip ${sortBy === "coverColor" ? "is-active" : ""}`}
+                  onClick={() => handleSortChange("coverColor")}
                   disabled={loading}
                 >
-                  Color
+                  Cover color
                 </button>
               </div>
             </div>
