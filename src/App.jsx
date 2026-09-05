@@ -3780,6 +3780,9 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
   position: sticky;
   top: 0;
   z-index: 60;
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
   margin: -30px -34px 30px;
   padding: 18px 34px 0;
   background: var(--glass);
@@ -3845,13 +3848,15 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
   background: transparent; border: none; border-bottom: 2px solid transparent;
   padding: 10px 4px 12px; margin-right: 22px; cursor: pointer;
   font-size: 0.92rem; font-weight: 500; color: var(--ink-soft);
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; position: relative; z-index: 1;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
-.vc-tab:hover { color: var(--ink); }
+@media (hover: hover) and (pointer: fine) { .vc-tab:hover { color: var(--ink); } }
 .vc-tab.is-active { color: var(--ink); border-bottom-color: var(--accent); }
 .vc-tab-count {
   font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--ink-soft);
   background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+  pointer-events: none;
 }
 .vc-tab.is-active .vc-tab-count { color: var(--accent); border-color: var(--accent); }
 
@@ -4527,7 +4532,10 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   .vc-brand p { font-size: 0.62rem; }
   .vc-header-actions { gap: 10px; margin-left: auto; }
   .vc-header-actions .vc-btn-primary { padding: 8px 12px; font-size: 0.76rem; }
-  .vc-tabs { overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .vc-tabs {
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: auto;
+    overscroll-behavior-x: contain; touch-action: pan-x pan-y;
+  }
   .vc-tabs::-webkit-scrollbar { display: none; }
   .vc-tab { margin-right: 14px; white-space: nowrap; }
 
