@@ -4269,6 +4269,15 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(172px, 200px));
   gap: 34px 72px;
+  /* The disc slides out to the right. On the last column that used to reach
+     past the viewport, so the document became wider than the screen and Safari
+     zoomed the whole page out to fit it — that reflow is what threw the scroll
+     upward. Clipping here means the disc simply slides out of sight at the page
+     edge instead. clip, unlike hidden, creates no scroll container, so nothing
+     about the sticky header or page scrolling changes. overflow-clip-margin
+     lets it still peek into the page padding before it disappears. */
+  overflow-x: clip;
+  overflow-clip-margin: 16px;
 }
 .vc-sleeve {
   background: transparent; border: none; padding: 0; cursor: pointer; text-align: left;
