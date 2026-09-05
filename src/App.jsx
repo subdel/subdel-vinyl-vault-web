@@ -4227,9 +4227,16 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   background: transparent; border: none; padding: 0; cursor: pointer; text-align: left;
   color: var(--ink); display: flex; flex-direction: column; gap: 9px;
   animation: vc-rise 0.5s ease both;
-  animation-delay: calc(var(--i) * 35ms);
+  /* Stagger only across the first screenful. calc(var(--i) * 35ms) with 77
+     records pushed the last card to a 2.66s delay, so every card sat in a
+     pending animation with fill:both for the better part of three seconds —
+     77 queued compositor animations is what was eating the taps. */
+  animation-delay: calc(min(var(--i), 9) * 35ms);
   position: relative;
   transition: transform 0.15s ease;
+  /* off-screen cards cost nothing to lay out or paint until scrolled to */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
 }
 .vc-sleeve.is-draggable { cursor: grab; }
 .vc-sleeve.is-draggable:active { cursor: grabbing; }
@@ -4581,6 +4588,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   .vc-chip { white-space: nowrap; flex: 0 0 auto; }
 
   .vc-grid { grid-template-columns: repeat(2, 1fr); gap: 22px 26px; }
+  .vc-sleeve { animation-delay: calc(min(var(--i), 5) * 28ms); }
   .vc-history-grid { gap: 12px; }
 
   .vc-detail-grid { gap: 24px; }
