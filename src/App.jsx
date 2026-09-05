@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { Plus, X, ArrowLeft, Search, ArrowUpDown, Disc3, ExternalLink, ListMusic, Trash2, Pencil, Upload, CircleCheck, Share, Download, Sun, Moon, QrCode, GripVertical, ChevronLeft, ChevronRight, ChevronDown, SlidersHorizontal, BarChart3, FileDown } from "lucide-react";
 import { supabase } from "./supabaseClient";
 import { VINYL_QUANTITIES, getVinylQuantity, resizeExtraDiscsForQuantity } from "./vinylQuantity";
@@ -493,8 +493,9 @@ export default function VinylCrate() {
       if (m) {
         setSelectedId(decodeURIComponent(m[1]));
         setView(m[2] ? "lyrics" : "detail");
-        // record pages always start from the top
-        requestAnimationFrame(() => window.scrollTo(0, 0));
+        // the scroll reset lives in a layout effect below: doing it here, or in
+        // rAF, lets the browser paint the new page at the old offset first —
+        // that single frame is the jump you see when a record opens
         return;
       }
       const t = window.location.hash.match(/^#\/(vault|wishlist|collection|insights|about)$/);
@@ -517,6 +518,12 @@ export default function VinylCrate() {
     window.addEventListener("hashchange", applyHash);
     return () => window.removeEventListener("hashchange", applyHash);
   }, []);
+
+  // Runs after the DOM is updated but before paint, so a record page is
+  // already at the top on its very first frame.
+  useLayoutEffect(() => {
+    if (view === "detail" || view === "lyrics") window.scrollTo(0, 0);
+  }, [view, selectedId]);
 
   const openRecord = (id) => {
     gridScrollRef.current = window.scrollY;
@@ -2324,6 +2331,47 @@ function ShareCollectionButton({ records }) {
   );
 }
 
+// Touch has no hover, so the sleeve currently under the finger is marked
+// instead. It works mid-scroll: the disc slides out of each sleeve the finger
+// travels across and settles back once the finger lifts.
+function useFingerPeek(enabled) {
+  useEffect(() => {
+    if (!enabled) return;
+    let current = null;
+    let clear = 0;
+    const mark = (el) => {
+      if (el === current) return;
+      if (current) current.classList.remove("is-peek");
+      current = el;
+      if (current) current.classList.add("is-peek");
+    };
+    const sleeveAt = (t) => {
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      return el ? el.closest(".vc-sleeve") : null;
+    };
+    const onTouch = (e) => {
+      clearTimeout(clear);
+      if (e.touches && e.touches.length) mark(sleeveAt(e.touches[0]));
+    };
+    const onEnd = () => {
+      clearTimeout(clear);
+      clear = setTimeout(() => mark(null), 320);
+    };
+    document.addEventListener("touchstart", onTouch, { passive: true });
+    document.addEventListener("touchmove", onTouch, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    document.addEventListener("touchcancel", onEnd, { passive: true });
+    return () => {
+      clearTimeout(clear);
+      mark(null);
+      document.removeEventListener("touchstart", onTouch);
+      document.removeEventListener("touchmove", onTouch);
+      document.removeEventListener("touchend", onEnd);
+      document.removeEventListener("touchcancel", onEnd);
+    };
+  }, [enabled]);
+}
+
 function GridView({
   loading,
   records,
@@ -2368,6 +2416,7 @@ function GridView({
   const [draggedId, setDraggedId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  useFingerPeek(!CAN_HOVER);
   const reduceMotion = useReducedMotion();
   const dragEnabled = canEdit && sortField === "sortOrder";
   const activeFilterCount = [colorFilter, finishFilter, tagFilter, genreFilter, artistFilter, yearFilter, sizeFilter, quantityFilter].filter(Boolean).length;
@@ -2771,11 +2820,9 @@ function GridView({
                     return badges.length > 0 ? <span className="vc-sleeve-highlight">{badges.join(" · ")}</span> : null;
                   })()}
                 </span>
-                {CAN_HOVER && (
-                  <span className="vc-sleeve-disc">
-                    <DiscStack record={r} />
-                  </span>
-                )}
+                <span className="vc-sleeve-disc">
+                  <DiscStack record={r} />
+                </span>
               </span>
               <span className="vc-sleeve-meta">
                 <strong>{r.title}</strong>
@@ -4263,7 +4310,8 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   box-shadow: 0 1px 2px #0000000d;
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
-.vc-sleeve:hover .vc-sleeve-cover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 14px 24px -16px #00000030; }
+.vc-sleeve:hover .vc-sleeve-cover,
+.vc-sleeve.is-peek .vc-sleeve-cover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 14px 24px -16px #00000030; }
 .vc-sleeve-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .vc-sleeve-disc {
   position: absolute; top: 6%; right: 0; width: 88%; height: 88%; border-radius: 50%;
@@ -4271,7 +4319,8 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   transition: transform 0.6s cubic-bezier(.16,1,.3,1), opacity 0.4s ease;
   box-shadow: 0 12px 22px -14px #00000045;
 }
-.vc-sleeve:hover .vc-sleeve-disc { opacity: 1; transform: translateX(38%); }
+.vc-sleeve:hover .vc-sleeve-disc,
+.vc-sleeve.is-peek .vc-sleeve-disc { opacity: 1; transform: translateX(38%); }
 .vc-sleeve-no {
   position: absolute; top: 8px; left: 8px; z-index: 3;
   font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.04em;
@@ -4293,6 +4342,7 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 /* On reveal each layer slides to its precomputed offset (set inline by DiscStack);
    the back disc travels the container's full distance, discs in front trail left. */
 .vc-sleeve:hover .vc-disc-layer,
+.vc-sleeve.is-peek .vc-disc-layer,
 .vc-stage.is-revealed .vc-disc-layer {
   transform: translateX(var(--disc-offset, 0%));
 }
