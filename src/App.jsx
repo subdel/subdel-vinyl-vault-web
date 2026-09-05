@@ -4234,9 +4234,6 @@ body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
   animation-delay: calc(min(var(--i), 9) * 35ms);
   position: relative;
   transition: transform 0.15s ease;
-  /* off-screen cards cost nothing to lay out or paint until scrolled to */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 260px;
 }
 .vc-sleeve.is-draggable { cursor: grab; }
 .vc-sleeve.is-draggable:active { cursor: grabbing; }
