@@ -2771,9 +2771,11 @@ function GridView({
                     return badges.length > 0 ? <span className="vc-sleeve-highlight">{badges.join(" · ")}</span> : null;
                   })()}
                 </span>
-                <span className="vc-sleeve-disc">
-                  <DiscStack record={r} />
-                </span>
+                {CAN_HOVER && (
+                  <span className="vc-sleeve-disc">
+                    <DiscStack record={r} />
+                  </span>
+                )}
               </span>
               <span className="vc-sleeve-meta">
                 <strong>{r.title}</strong>
@@ -2927,6 +2929,12 @@ function FinishIcon({ type, size = 22 }) {
   }
 }
 
+// Evaluated once. A touch device never produces hover, so anything that only
+// exists to be revealed on hover is pure download-and-decode cost there.
+const CAN_HOVER =
+  typeof window !== "undefined" &&
+  window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+
 function DiscFace({ record }) {
   const discImg = record.discImageUrl || null;
   if (discImg) {
@@ -2939,6 +2947,9 @@ function DiscFace({ record }) {
           className="vc-disc-face-img"
           src={discImg}
           alt=""
+          loading="lazy"
+          decoding="async"
+          fetchPriority="low"
           style={{ objectPosition: `${x}% ${y}%`, transform: `scale(${zoom})` }}
         />
       </span>
@@ -3033,7 +3044,15 @@ function CoverArt({ coverUrl, artist, title, hex, alt }) {
   if (!resolved || failed) {
     return <PlaceholderCover artist={artist} title={title} hex={hex} />;
   }
-  return <img src={resolved} alt={alt} onError={() => setFailed(true)} />;
+  return (
+    <img
+      src={resolved}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 function PlaceholderCover({ artist, title, hex }) {
