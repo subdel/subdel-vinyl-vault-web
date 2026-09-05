@@ -3987,7 +3987,13 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
 }
 
 /* --- Circular gallery: full-bleed WebGL carousel of covers, A→Z --- */
-body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
+/* hidden, not clip: Safari does not propagate overflow:clip from body up to the
+   viewport, so the document was still allowed to grow wider than the screen when
+   a sleeve's disc slid past the right edge — and Safari then either rescaled the
+   page or panned to bring the tapped card into view. Either way it reflowed and
+   threw the scroll. hidden propagates in every browser; the used value on body
+   itself stays visible, so the sticky nav is unaffected. */
+body { overflow-x: hidden; }
 .vc-essay-gallery-block { padding: 5vh 0 3vh; }
 .vc-essay-gallery-label { text-align: center; margin-bottom: 6px; }
 .vc-essay-gallery {
