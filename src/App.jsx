@@ -1318,6 +1318,8 @@ function ClickSpark({
 }) {
   const canvasRef = useRef(null);
   const sparksRef = useRef([]);
+  const rafRef = useRef(0);        // 0 = loop parked
+  const drawRef = useRef(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1357,7 +1359,6 @@ function ClickSpark({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    let animationId;
 
     const draw = (timestamp) => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1383,11 +1384,20 @@ function ClickSpark({
         ctx.stroke();
         return true;
       });
-      animationId = requestAnimationFrame(draw);
+      // Nothing left to draw: stop the loop instead of clearing a
+      // full-viewport canvas 60 times a second for the rest of the session.
+      if (sparksRef.current.length === 0) {
+        rafRef.current = 0;
+        return;
+      }
+      rafRef.current = requestAnimationFrame(draw);
     };
-    animationId = requestAnimationFrame(draw);
+    drawRef.current = draw;
 
-    return () => cancelAnimationFrame(animationId);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
   }, [sparkColor, sparkSize, sparkRadius, duration, easeFunc, extraScale]);
 
   const sparkCountRef = useRef(sparkCount);
@@ -1405,6 +1415,9 @@ function ClickSpark({
         startTime: now,
       }));
       sparksRef.current.push(...newSparks);
+      if (!rafRef.current && drawRef.current) {
+        rafRef.current = requestAnimationFrame(drawRef.current);
+      }
     };
     window.addEventListener("click", handleClick);
     return () => window.removeEventListener("click", handleClick);
