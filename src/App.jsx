@@ -3755,6 +3755,19 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
   min-height: 100vh;
   padding: 30px 34px 64px;
   box-sizing: border-box;
+  /* The disc slides out to the right of every sleeve. On the last column it
+     reaches past the screen, which made the document wider than the viewport —
+     and the browser answered by rescaling the page or panning the tapped card
+     into view. Clipping on THIS element is what fixes it: its padding box ends
+     exactly at the screen edge, so the disc still slides out and simply
+     disappears off the edge, in both columns, always to the right.
+     On body the same rule does nothing in Safari (it does not propagate
+     overflow:clip to the viewport), and on .vc-grid it clips at the card edge,
+     which kills the reveal in the right column. Here it clips at the screen.
+     clip, unlike hidden, creates no scroll container — so the sticky nav is
+     untouched, and it also blocks the browser's own focus-scrolling, which
+     hidden does not. */
+  overflow-x: clip;
   transition: background 0.2s ease, color 0.2s ease;
 }
 .vc-root[data-theme="dark"] {
@@ -3987,13 +4000,7 @@ html, body, #root { margin: 0; padding: 0; min-height: 100%; }
 }
 
 /* --- Circular gallery: full-bleed WebGL carousel of covers, A→Z --- */
-/* hidden, not clip: Safari does not propagate overflow:clip from body up to the
-   viewport, so the document was still allowed to grow wider than the screen when
-   a sleeve's disc slid past the right edge — and Safari then either rescaled the
-   page or panned to bring the tapped card into view. Either way it reflowed and
-   threw the scroll. hidden propagates in every browser; the used value on body
-   itself stays visible, so the sticky nav is unaffected. */
-body { overflow-x: hidden; }
+body { overflow-x: clip; } /* clip (not hidden) keeps sticky nav working */
 .vc-essay-gallery-block { padding: 5vh 0 3vh; }
 .vc-essay-gallery-label { text-align: center; margin-bottom: 6px; }
 .vc-essay-gallery {
